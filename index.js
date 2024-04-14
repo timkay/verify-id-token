@@ -9,63 +9,6 @@ const cache = new Map();
 function decodeJwt(token) {
 }
 
-/**
- * Imports a public key for the provided Google Cloud (GCP)
- * service account credentials.
- *
- * @throws {FetchError} - If the X.509 certificate could not be fetched.
- */
-async function importPublicKey(keyId) {
-    return
-    const certificateURL = 'https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com';
-    const cacheKey = `${certificateURL}?key=${keyId}`;
-    const value = cache.get(cacheKey);
-    const now = Date.now();
-    async function fetchKey() {
-        const res = await fetch(certificateURL);
-        if (!res.ok) {
-            const error = await res
-                  .json()
-                  .then((data) => data.error.message)
-                  .catch(() => undefined);
-            throw new FetchError(error ?? "Failed to fetch the public key", {
-                response: res,
-            });
-        }
-        const data = await res.json();
-        const x509 = data[keyId];
-        if (!x509) {
-            throw new Error(`Public key "${keyId}" not found.`);
-        }
-        const key = await importX509(x509, "RS256");
-        const maxAge = res.headers.get("cache-control")?.match(/max-age=(\d+)/)?.[1]; // prettier-ignore
-        const expires = Date.now() + Number(maxAge ?? "3600") * 1000;
-        cache.set(cacheKey, {key, expires});
-        inFlight.delete(keyId);
-        return key;
-    }
-    // Attempt to read the key from the local cache
-    if (value) {
-        if (value.expires > now + 10_000) {
-            if (value.expires - now < 600_000) {
-                const promise = fetchKey();
-                inFlight.set(cacheKey, promise);
-            }
-            return value.key;
-        } else {
-            cache.delete(cacheKey);
-        }
-    }
-    // Check if there is an in-flight request for the same key ID
-    let promise = inFlight.get(cacheKey);
-    // If not, start a new request
-    if (!promise) {
-        promise = fetchKey();
-        inFlight.set(cacheKey, promise);
-    }
-    return promise;
-}
-
 async function getKey(keyId) {
     const certificateURL = 'https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com';
     const res = await fetch(certificateURL);
@@ -73,15 +16,16 @@ async function getKey(keyId) {
         const error = await res.json().then((data) => data.error.message).catch(() => undefined);
         throw new FetchError(error ?? "Failed to fetch the public key", {response: res});
     }
-    const data = await res.json();
-    const cert = data[keyId];
-    console.log('cert', cert);
-    const spki = crypto.createPublicKey(cert).export({type:'spki', format:'pem'});
-    console.log('spki', spki);
-    return spki;
+    const cert = (await res.json())[keyId];
+    return crypto.createPublicKey(cert).export({type:'spki', format:'pem'});
 }
 
 async function verifyIdToken(idToken, clientId) {
+    const base64ToBuffer = item => new Uint8Array(Buffer.from(item, 'base64'));
+    const base64ToText = item => new TextDecoder().decode(base64ToBuffer(item));
+    const base64JSONToObject = item => JSON.parse(base64ToText(item));
+    const textToBase64 = item => new TextEncoder().encode(item);
+
     let issuer = `https://securetoken.google.com/${clientId}`;
     const now = Math.floor(Date.now() / 1000);
 
@@ -90,34 +34,34 @@ async function verifyIdToken(idToken, clientId) {
     if (typeof encodedHeader !== 'string' || !encodedHeader) throw new Error();
     if (typeof encodedPayload !== 'string' || !encodedPayload) throw new Error();
     if (typeof encodedSignature !== 'string' || !encodedSignature) throw new Error();
-    const header = JSON.parse(new TextDecoder().decode(new Uint8Array(Buffer.from(encodedHeader, 'base64'))));
-    const payload = JSON.parse(new TextDecoder().decode(new Uint8Array(Buffer.from(encodedPayload, 'base64'))));
+    const header = base64JSONToObject(encodedHeader);
+    const payload = base64JSONToObject(encodedPayload);
     if (!header) throw new Error();
     if (!payload) throw new Error();
 
     const cert = await getKey(header.kid);
     const spki = cert.match(/-----BEGIN PUBLIC KEY-----(.*?)-----END PUBLIC KEY-----/s)[1].replace(/\s/g, '');
-    console.log('spki', spki);
+    //console.log('spki', spki);
     const algorithm = {name: "RSASSA-PKCS1-v1_5", hash: {name: "SHA-256"}};
-    const key = await crypto.subtle.importKey('spki', new Uint8Array(Buffer.from(spki, 'base64')), algorithm, true, ['verify']);
-    console.log('spki', key);
+    const key = await crypto.subtle.importKey('spki', base64ToBuffer(spki), algorithm, true, ['verify']);
+    //console.log('spki', key, key.algorithm);
 
-    const signature = new Uint8Array(Buffer.from(encodedSignature, 'base64'));
-    const data = new TextEncoder().encode(encodedHeader + '.' + encodedPayload);
+    const signature = base64ToBuffer(encodedSignature);
+    const data = textToBase64(encodedHeader + '.' + encodedPayload);
 
     console.log('---crypto.verify---');
-    console.log('algorithm', algorithm);
-    console.log('key', key);
+    //console.log('algorithm', algorithm);
+    //console.log('key', key);
     //console.log('key', crypto.KeyObject.from(key));
-    console.log('signature', signature);
-    console.log('data', data);
+    //console.log('signature', signature);
+    //console.log('data', data);
     const success = await crypto.verify('sha256', data, key, signature);
     console.log('HERE', {success});
-    const success2 = await crypto.subtle.verify(algorithm, key, data, signature);
+    const success2 = await crypto.subtle.verify(key.algorithm, key, signature, data);
     console.log('HERE', {success2});
 
-    const keyx = await importPublicKey(header.kid);
-    const {payload: verifiedPayload} = await jwtVerify(idToken, keyx, {
+    return;
+    const {payload: verifiedPayload} = await jwtVerify(idToken, key, {
         audience: clientId,
         issuer,
         maxTokenAge: '1h',
@@ -131,7 +75,7 @@ async function verifyIdToken(idToken, clientId) {
     return payload;
 }
 
-const idToken = `fyJhbGciOiJSUzI1NiIsImtpZCI6ImYyOThjZDA3NTlkOGNmN2JjZTZhZWNhODExNmU4ZjYzMDlhNDQwMjAiLCJ0eXAiOiJKV1QifQ.eyJuYW1lIjoiVGltIEtheSIsImlzcyI6Imh0dHBzOi8vc2VjdXJldG9rZW4uZ29vZ2xlLmNvbS9wY2JhcnQtNjJjYjEiLCJhdWQiOiJwY2JhcnQtNjJjYjEiLCJhdXRoX3RpbWUiOjE3MTI5NjA2OTEsInVzZXJfaWQiOiJ5Umk1YWNLblV2aDE3dXpXTVBidE9kd042WTcyIiwic3ViIjoieVJpNWFjS25VdmgxN3V6V01QYnRPZHdONlk3MiIsImlhdCI6MTcxMzExMDI3MCwiZXhwIjoxNzEzMTEzODcwLCJlbWFpbCI6InRpbWtheUBub3QuY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsImZpcmViYXNlIjp7ImlkZW50aXRpZXMiOnsiZW1haWwiOlsidGlta2F5QG5vdC5jb20iXX0sInNpZ25faW5fcHJvdmlkZXIiOiJwYXNzd29yZCJ9fQ.ccboX-tEFT0n7o9pvrrwRLNg2AepKGgq6TQ1gi4tBwXcH3LJXTcqxT0ktRezAtuMHe8WxpYmI_QRZvi6kqNyB3QYqBydZf6QekgqIoz6HvEJbN5V0ug6uIeEm2ExuaU-qsUoAjUUrTW5FcAXjh6QNKPXhPoLpG-rxVoyRg7K1bVQorRf0tquOaGaOrKiCTuruqnUu62wF46rUS4JhIrbdkGqVPPfkl2tNGt-WbZdse81aUm2kA4qE8D6fIK_nDZk0QM5Ws5UQfTLhu6HHdiyMB9FPEV93UL_zVorMZipYfeasjbS8aEmvDq35PbDtWgwPs5oGK1aHJnuXGI3jTZMWw`;
+const idToken = 'eyJhbGciOiJSUzI1NiIsImtpZCI6ImYyOThjZDA3NTlkOGNmN2JjZTZhZWNhODExNmU4ZjYzMDlhNDQwMjAiLCJ0eXAiOiJKV1QifQ.eyJuYW1lIjoiVGltIEtheSIsInBpY3R1cmUiOiJodHRwczovL2xoMy5nb29nbGV1c2VyY29udGVudC5jb20vYS9BQ2c4b2NLWkk1SHFSRlJWdEl1aG5kRnZlSDNXVnBJY2VqUUlfNWhYc0ZHb0RYN0FKTjg9czk2LWMiLCJpc3MiOiJodHRwczovL3NlY3VyZXRva2VuLmdvb2dsZS5jb20vcGNiYXJ0LTYyY2IxIiwiYXVkIjoicGNiYXJ0LTYyY2IxIiwiYXV0aF90aW1lIjoxNzEzMTE4NDY3LCJ1c2VyX2lkIjoiY1o3UWY2V05VR2V4NHRQc1pxRXV4eFExMk1mMSIsInN1YiI6ImNaN1FmNldOVUdleDR0UHNacUV1eHhRMTJNZjEiLCJpYXQiOjE3MTMxMTg0NjgsImV4cCI6MTcxMzEyMjA2OCwiZW1haWwiOiJ0aW1rYXlAZ21haWwuY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsImZpcmViYXNlIjp7ImlkZW50aXRpZXMiOnsiZ29vZ2xlLmNvbSI6WyIxMDY5Mzg1MDE5MjI5MTM3NDM4OTIiXSwiZW1haWwiOlsidGlta2F5QGdtYWlsLmNvbSJdfSwic2lnbl9pbl9wcm92aWRlciI6Imdvb2dsZS5jb20ifX0.BLnmDnN3MtcrOew4KbREHmsar_Ty2fPp8a8CxgeSw9om5x7GWOH0_h7qhT39rgWOlcLoam3U-rYNsF9x1k_sVv0P-erJ6ZoxfxKkY31MZxLCTkGvIoQmXsfLSwmhOSBt5xY2DHjoonP3lDZpdmiIat56frwGFKCt3nzuKibUjbxpYAUuZ2LNHpT0gO7dLNZ85VKYyyGXYYpiys_TxbQTviXppUX0zj0FJLcdZ92ZRg3lp05vrt4bSr6EWjFv-r7pkQjBdz87Ju-K-lnz2DnAUddJY0OtZExxXtxJvY3zjsw4QKacwj5vsZV750jSBwnMYtwkjn-7f9AyvfVFBNx-EA'
 
 const [headerJSON, payloadJSON, signature] = idToken.split(/\./);
 const header = JSON.parse(atob(headerJSON));
