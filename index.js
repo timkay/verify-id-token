@@ -16,6 +16,7 @@ function decodeJwt(token) {
  * @throws {FetchError} - If the X.509 certificate could not be fetched.
  */
 async function importPublicKey(keyId) {
+    return
     const certificateURL = 'https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com';
     const cacheKey = `${certificateURL}?key=${keyId}`;
     const value = cache.get(cacheKey);
@@ -65,9 +66,24 @@ async function importPublicKey(keyId) {
     return promise;
 }
 
+async function getKey(keyId) {
+    const certificateURL = 'https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com';
+    const res = await fetch(certificateURL);
+    if (!res.ok) {
+        const error = await res.json().then((data) => data.error.message).catch(() => undefined);
+        throw new FetchError(error ?? "Failed to fetch the public key", {response: res});
+    }
+    const data = await res.json();
+    const cert = data[keyId];
+    console.log('cert', cert);
+    const spki = crypto.createPublicKey(cert).export({type:'spki', format:'pem'});
+    console.log('spki', spki);
+    return spki;
+}
+
 async function verifyIdToken(idToken, clientId) {
     let issuer = `https://securetoken.google.com/${clientId}`;
-    // Import the public key from the Google Cloud project
+    const now = Math.floor(Date.now() / 1000);
 
     let [encodedHeader, encodedPayload, encodedSignature] = idToken.split('.');
 
@@ -79,8 +95,13 @@ async function verifyIdToken(idToken, clientId) {
     if (!header) throw new Error();
     if (!payload) throw new Error();
 
+    const cert = await getKey(header.kid);
+    const spki = cert.match(/-----BEGIN PUBLIC KEY-----(.*?)-----END PUBLIC KEY-----/s)[1].replace(/\s/g, '');
+    console.log('spki', spki);
     const algorithm = {name: "RSASSA-PKCS1-v1_5", hash: {name: "SHA-256"}};
-    const key = await importPublicKey(header.kid);
+    const key = await crypto.subtle.importKey('spki', new Uint8Array(Buffer.from(spki, 'base64')), algorithm, true, ['verify']);
+    console.log('spki', key);
+
     const signature = new Uint8Array(Buffer.from(encodedSignature, 'base64'));
     const data = new TextEncoder().encode(encodedHeader + '.' + encodedPayload);
 
@@ -92,8 +113,11 @@ async function verifyIdToken(idToken, clientId) {
     console.log('data', data);
     const success = await crypto.verify('sha256', data, key, signature);
     console.log('HERE', {success});
+    const success2 = await crypto.subtle.verify(algorithm, key, data, signature);
+    console.log('HERE', {success2});
 
-    const {payload: verifiedPayload} = await jwtVerify(idToken, key, {
+    const keyx = await importPublicKey(header.kid);
+    const {payload: verifiedPayload} = await jwtVerify(idToken, keyx, {
         audience: clientId,
         issuer,
         maxTokenAge: '1h',
@@ -101,14 +125,13 @@ async function verifyIdToken(idToken, clientId) {
     });
     if (!payload.sub) throw new Error(`Missing "sub" claim`);
 
-    const now = Math.floor(Date.now() / 1000);
     if (typeof payload.auth_time === 'number' && payload.auth_time > now) {
         throw new Error(`Unexpected "auth_time" claim value`);
     }
     return payload;
 }
 
-const idToken = `eyJhbGciOiJSUzI1NiIsImtpZCI6ImYyOThjZDA3NTlkOGNmN2JjZTZhZWNhODExNmU4ZjYzMDlhNDQwMjAiLCJ0eXAiOiJKV1QifQ.eyJuYW1lIjoiVGltIEtheSIsImlzcyI6Imh0dHBzOi8vc2VjdXJldG9rZW4uZ29vZ2xlLmNvbS9wY2JhcnQtNjJjYjEiLCJhdWQiOiJwY2JhcnQtNjJjYjEiLCJhdXRoX3RpbWUiOjE3MTI5NjA2OTEsInVzZXJfaWQiOiJ5Umk1YWNLblV2aDE3dXpXTVBidE9kd042WTcyIiwic3ViIjoieVJpNWFjS25VdmgxN3V6V01QYnRPZHdONlk3MiIsImlhdCI6MTcxMzExMDI3MCwiZXhwIjoxNzEzMTEzODcwLCJlbWFpbCI6InRpbWtheUBub3QuY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsImZpcmViYXNlIjp7ImlkZW50aXRpZXMiOnsiZW1haWwiOlsidGlta2F5QG5vdC5jb20iXX0sInNpZ25faW5fcHJvdmlkZXIiOiJwYXNzd29yZCJ9fQ.ccboX-tEFT0n7o9pvrrwRLNg2AepKGgq6TQ1gi4tBwXcH3LJXTcqxT0ktRezAtuMHe8WxpYmI_QRZvi6kqNyB3QYqBydZf6QekgqIoz6HvEJbN5V0ug6uIeEm2ExuaU-qsUoAjUUrTW5FcAXjh6QNKPXhPoLpG-rxVoyRg7K1bVQorRf0tquOaGaOrKiCTuruqnUu62wF46rUS4JhIrbdkGqVPPfkl2tNGt-WbZdse81aUm2kA4qE8D6fIK_nDZk0QM5Ws5UQfTLhu6HHdiyMB9FPEV93UL_zVorMZipYfeasjbS8aEmvDq35PbDtWgwPs5oGK1aHJnuXGI3jTZMWw`;
+const idToken = `fyJhbGciOiJSUzI1NiIsImtpZCI6ImYyOThjZDA3NTlkOGNmN2JjZTZhZWNhODExNmU4ZjYzMDlhNDQwMjAiLCJ0eXAiOiJKV1QifQ.eyJuYW1lIjoiVGltIEtheSIsImlzcyI6Imh0dHBzOi8vc2VjdXJldG9rZW4uZ29vZ2xlLmNvbS9wY2JhcnQtNjJjYjEiLCJhdWQiOiJwY2JhcnQtNjJjYjEiLCJhdXRoX3RpbWUiOjE3MTI5NjA2OTEsInVzZXJfaWQiOiJ5Umk1YWNLblV2aDE3dXpXTVBidE9kd042WTcyIiwic3ViIjoieVJpNWFjS25VdmgxN3V6V01QYnRPZHdONlk3MiIsImlhdCI6MTcxMzExMDI3MCwiZXhwIjoxNzEzMTEzODcwLCJlbWFpbCI6InRpbWtheUBub3QuY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsImZpcmViYXNlIjp7ImlkZW50aXRpZXMiOnsiZW1haWwiOlsidGlta2F5QG5vdC5jb20iXX0sInNpZ25faW5fcHJvdmlkZXIiOiJwYXNzd29yZCJ9fQ.ccboX-tEFT0n7o9pvrrwRLNg2AepKGgq6TQ1gi4tBwXcH3LJXTcqxT0ktRezAtuMHe8WxpYmI_QRZvi6kqNyB3QYqBydZf6QekgqIoz6HvEJbN5V0ug6uIeEm2ExuaU-qsUoAjUUrTW5FcAXjh6QNKPXhPoLpG-rxVoyRg7K1bVQorRf0tquOaGaOrKiCTuruqnUu62wF46rUS4JhIrbdkGqVPPfkl2tNGt-WbZdse81aUm2kA4qE8D6fIK_nDZk0QM5Ws5UQfTLhu6HHdiyMB9FPEV93UL_zVorMZipYfeasjbS8aEmvDq35PbDtWgwPs5oGK1aHJnuXGI3jTZMWw`;
 
 const [headerJSON, payloadJSON, signature] = idToken.split(/\./);
 const header = JSON.parse(atob(headerJSON));
