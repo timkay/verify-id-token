@@ -1,4 +1,5 @@
 
+import {strict as assert} from 'node:assert';
 import * as crypto from 'node:crypto';
 
 //const base64ToBuffer = item => new Uint8Array(Buffer.from(item, 'base64url'));
@@ -35,10 +36,11 @@ function decodeDer(octets, depth = 0) {
                 length = (length << 8) | octets[position++];
             }
         }
-        const data = [...octets.subarray(position, position + length)].map(x => x.toString(16).padStart(2, '0')).join(' ').substr(0, 40);
+        const data = [...octets.subarray(position, position + length)].map(x => x.toString(16).padStart(2, '0')).join('').substr(0, 40);
         return {class: cls, form, tag, length, data};
     }
 
+    let elems = [];
     let position = 0;
 
     while (position < octets.length) {
@@ -50,23 +52,46 @@ function decodeDer(octets, depth = 0) {
             for (let i = 0; i < result.length; i++) {
                 value = value * BigInt(256) + BigInt(octets[position + i]);
             }
+            value = value.toString();
+        }
+        if (result.tag === 1) {
+            result.type = 'BOOLEAN';
+            value = result.data;
         }
         if (result.tag === 3) {
             result.type = 'BIT STRING';
-            value = [...octets.subarray(position, position + result.length)].join('');
+            result.extra = octets[position++];
+            if (result.extra !== 0) {
+                console.log('extra bits');
+            }
+            //assert(result.extra == 0); // number of unused bits in last octet
+            value = [...octets.subarray(position + 1, position + result.length)].map(x => x.toString(16).padStart(2, '0')).join('').substr(0, 40);
         }
         if (result.tag === 4) {
             result.type = 'OCTET STRING';
-            value = [...octets.subarray(position, position + result.length)].join('');
+            value = result.data;
         }
         if (result.tag === 5) {
             result.type = 'NULL';
+            value = result.data;
         }
         if (result.tag === 6) {
             result.type = 'OBJECT IDENTIFIER';
+            const x = Math.min(Math.floor(octets[position] / 40), 2);
+            value = x + '.' + (octets[position] - 40 * x);
+            let accum = 0;
+            for (let i = 1; i < result.length; i++) {
+                accum = (accum << 7) + (octets[position + i] & 0x7f);
+                if (!(octets[position + i] & 0x80)) {
+                    value += '.' + accum.toString();
+                    accum = 0;
+                    continue;
+                }
+            }
+            if (accum) value += '.' + accum;
         }
         if (result.tag === 12) {
-            result.type = '???';
+            result.type = 'UTF8String';
             value = bufferToText(octets.subarray(position, position + result.length));
         }
         if (result.tag === 16) {
@@ -74,7 +99,6 @@ function decodeDer(octets, depth = 0) {
         }
         if (result.tag === 17) {
             result.type = 'SET';
-            value = [...octets.subarray(position, position + result.length)].join('');
         }
         if (result.tag === 19) {
             result.type = 'PrintableString';
@@ -93,15 +117,20 @@ function decodeDer(octets, depth = 0) {
             value = bufferToText(octets.subarray(position, position + result.length));
         }
         delete result.class;
-        const data = result.data;
-        delete result.data;
-        console.log('  '.repeat(depth), 'ber', value, result, data);
-        if (result.form === 1) {
-            decodeDer(octets.subarray(position, position + result.length), depth + 1);
+        if (result.cls === 0) delete result.cls;
+        if (value) delete result.tag;
+        const form = result.form;
+        delete result.form;
+        console.log('  '.repeat(depth), 'ber', result.type || result.tag, `(${result.length})`, value);
+        if (form === 1) {
+            elems.push(decodeDer(octets.subarray(position, position + result.length), depth + 1));
+        } else {
+            elems.push({type: result.type || result.tag, value});
         }
         position += result.length;
     }
 
+    return elems;
 }
 
 function parseCertificate(byteArray) {
@@ -226,21 +255,25 @@ async function verifyIdToken(idToken, clientId) {
         throw new FetchError(error ?? "Failed to fetch the public key", {response: res});
     }
     const x509 = (await res.json())[header.kid];
-    const der = base64ToBuffer(x509.match(/-----BEGIN CERTIFICATE-----(.*?)-----END CERTIFICATE-----/s)[1].replace(/\s/g, ''));
-    // console.log('x509', x509);
-    // console.log('der', [...der].map(x => x.toString().padStart(3, ' ') + '=0x' + x.toString(16).padStart(2, '0')));
-    console.log('der', der);
-    console.log(decodeDer(der));
 
-    return;
+    if (1) {
+        const der = base64ToBuffer(x509.match(/-----BEGIN CERTIFICATE-----(.*?)-----END CERTIFICATE-----/s)[1].replace(/\s/g, ''));
+        // console.log('x509', x509);
+        // console.log('der', [...der].map(x => x.toString().padStart(3, ' ') + '=0x' + x.toString(16).padStart(2, '0')));
+        console.log('der', der);
+        const elems = decodeDer(der);
+        console.log(JSON.stringify(elems, null, 4));
+        return;
+    }
 
-    const obj = parseCertificate(asn1);
-    console.log('contents', bufferToText(obj.contents));
-    // console.log('pem', pem);
-    // console.log('pem', base64ToText(pem));
-
-    // const key1 = new crypto.X509Certificate(x509).publicKey;
-    // console.log('key1', key1);
+    if (0) {
+        const obj = parseCertificate(asn1);
+        console.log('contents', bufferToText(obj.contents));
+        // console.log('pem', pem);
+        // console.log('pem', base64ToText(pem));
+        // const key1 = new crypto.X509Certificate(x509).publicKey;
+        // console.log('key1', key1);
+    }
 
     const cert = await crypto.createPublicKey(x509).export({type:'spki', format:'pem'});
     console.log('cert', cert);
@@ -272,5 +305,5 @@ try {
     let decoded = await verifyIdToken(idToken, 'pcbart-62cb1');
     console.log({decoded});
 } catch (err) {
-    console.log(err.message);
+    console.log(err);
 }
