@@ -4,18 +4,16 @@ import * as crypto from 'node:crypto';
 
 //const base64ToBuffer = item => new Uint8Array(Buffer.from(item, 'base64url'));
 const base64ToBuffer = item => Uint8Array.from(atob(item.replace(/-/g, '+').replace(/_/g, '/')), ch => ch.charCodeAt(0));
-
 const base64ToText = item => new TextDecoder().decode(base64ToBuffer(item));
 const base64JSONToObject = item => JSON.parse(base64ToText(item));
 const textToBuffer = item => new TextEncoder().encode(item);
 const bufferToText = item => new TextDecoder().decode(item);
-
+const bufferToBase64 = item => btoa(Array.from(item, ch => String.fromCharCode(ch)).join('')).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
 function decodeDer(octets, depth = 0) {
 
-    // 30 82 03 1c
-
     function getClassFormTagLength() {
+        const start = position;
         const octet = octets[position++];
         const cls = octet >> 6;
         const form = (octet & 0x20) >> 5;
@@ -36,7 +34,8 @@ function decodeDer(octets, depth = 0) {
                 length = (length << 8) | octets[position++];
             }
         }
-        const data = [...octets.subarray(position, position + length)].map(x => x.toString(16).padStart(2, '0')).join('').substr(0, 40);
+        //const data = [...octets.subarray(position, position + length)].map(x => x.toString(16).padStart(2, '0')).join('');
+        const data = octets.subarray(start, position + length);
         return {class: cls, form, tag, length, data};
     }
 
@@ -46,194 +45,95 @@ function decodeDer(octets, depth = 0) {
     while (position < octets.length) {
         const result = getClassFormTagLength();
         let value = ''
-        if (result.tag === 2) {
-            result.type = 'INTEGER';
-            value = BigInt(0);
-            for (let i = 0; i < result.length; i++) {
-                value = value * BigInt(256) + BigInt(octets[position + i]);
-            }
-            value = value.toString();
-        }
-        if (result.tag === 1) {
-            result.type = 'BOOLEAN';
-            value = result.data;
-        }
-        if (result.tag === 3) {
-            result.type = 'BIT STRING';
-            result.extra = octets[position++];
-            if (result.extra !== 0) {
-                console.log('extra bits');
-            }
-            //assert(result.extra == 0); // number of unused bits in last octet
-            value = [...octets.subarray(position + 1, position + result.length)].map(x => x.toString(16).padStart(2, '0')).join('').substr(0, 40);
-        }
-        if (result.tag === 4) {
-            result.type = 'OCTET STRING';
-            value = result.data;
-        }
-        if (result.tag === 5) {
-            result.type = 'NULL';
-            value = result.data;
-        }
-        if (result.tag === 6) {
-            result.type = 'OBJECT IDENTIFIER';
-            const x = Math.min(Math.floor(octets[position] / 40), 2);
-            value = x + '.' + (octets[position] - 40 * x);
-            let accum = 0;
-            for (let i = 1; i < result.length; i++) {
-                accum = (accum << 7) + (octets[position + i] & 0x7f);
-                if (!(octets[position + i] & 0x80)) {
-                    value += '.' + accum.toString();
-                    accum = 0;
-                    continue;
+        if (result.class === 0) { // Universal tags
+            if (result.tag === 2) {
+                result.type = 'INTEGER';
+                value = BigInt(0);
+                for (let i = 0; i < result.length; i++) {
+                    value = value * 256n + BigInt(octets[position + i]);
                 }
+                value = value.toString();
             }
-            if (accum) value += '.' + accum;
+            if (result.tag === 1) {
+                result.type = 'BOOLEAN';
+                value = result.data;
+            }
+            if (result.tag === 3) {
+                result.type = 'BIT STRING';
+                result.extra = octets[position++];
+                if (result.extra !== 0) {
+                    console.log('extra bits');
+                }
+                //assert(result.extra == 0); // number of unused bits in last octet
+                value = [...octets.subarray(position + 1, position + result.length)].map(x => x.toString(16).padStart(2, '0')).join('').substr(0, 40);
+            }
+            if (result.tag === 4) {
+                result.type = 'OCTET STRING';
+                value = result.data;
+            }
+            if (result.tag === 5) {
+                result.type = 'NULL';
+                value = result.data;
+            }
+            if (result.tag === 6) {
+                result.type = 'OBJECT IDENTIFIER';
+                const x = Math.min(Math.floor(octets[position] / 40), 2);
+                value = x + '.' + (octets[position] - 40 * x);
+                let accum = 0;
+                for (let i = 1; i < result.length; i++) {
+                    accum = (accum << 7) + (octets[position + i] & 0x7f);
+                    if (!(octets[position + i] & 0x80)) {
+                        value += '.' + accum.toString();
+                        accum = 0;
+                        continue;
+                    }
+                }
+                if (accum) value += '.' + accum;
+            }
+            if (result.tag === 12) {
+                result.type = 'UTF8String';
+                value = bufferToText(octets.subarray(position, position + result.length));
+            }
+            if (result.tag === 16) {
+                result.type = 'SEQUENCE';
+            }
+            if (result.tag === 17) {
+                result.type = 'SET';
+            }
+            if (result.tag === 19) {
+                result.type = 'PrintableString';
+                value = [...octets.subarray(position, position + result.length)].join('');
+            }
+            if (result.tag === 20) {
+                result.type = 'T61String';
+                value = [...octets.subarray(position, position + result.length)].join('');
+            }
+            if (result.tag === 22) {
+                result.type = 'IA5STRING';
+                value = [...octets.subarray(position, position + result.length)].join('');
+            }
+            if (result.tag === 23) {
+                result.type = 'UTCTime';
+                value = bufferToText(octets.subarray(position, position + result.length));
+            }
         }
-        if (result.tag === 12) {
-            result.type = 'UTF8String';
-            value = bufferToText(octets.subarray(position, position + result.length));
-        }
-        if (result.tag === 16) {
-            result.type = 'SEQUENCE';
-        }
-        if (result.tag === 17) {
-            result.type = 'SET';
-        }
-        if (result.tag === 19) {
-            result.type = 'PrintableString';
-            value = [...octets.subarray(position, position + result.length)].join('');
-        }
-        if (result.tag === 20) {
-            result.type = 'T61String';
-            value = [...octets.subarray(position, position + result.length)].join('');
-        }
-        if (result.tag === 22) {
-            result.type = 'IA5STRING';
-            value = [...octets.subarray(position, position + result.length)].join('');
-        }
-        if (result.tag === 23) {
-            result.type = 'UTCTime';
-            value = bufferToText(octets.subarray(position, position + result.length));
-        }
-        delete result.class;
-        if (result.cls === 0) delete result.cls;
         if (value) delete result.tag;
         const form = result.form;
         delete result.form;
-        console.log('  '.repeat(depth), 'ber', result.type || result.tag, `(${result.length})`, value);
+        console.log('  '.repeat(depth), result.class, result.type || result.tag, `(${result.length})`, value);
         if (form === 1) {
-            elems.push(decodeDer(octets.subarray(position, position + result.length), depth + 1));
+            const der = decodeDer(octets.subarray(position, position + result.length), depth + 1);
+            // if (Array.isArray(der) && Array.isArray(der[0])) {
+            //     console.log('der/der', JSON.stringify(der[0], null, 4));
+            // }
+            elems.push({type: result.type || result.tag, der, data: result.data});
         } else {
-            elems.push({type: result.type || result.tag, value});
+            elems.push({type: result.type || result.tag, value, data: result.data});
         }
         position += result.length;
     }
 
     return elems;
-}
-
-function parseCertificate(byteArray) {
-    let asn1 = berToJavaScript(byteArray);
-    // if (asn1.cls !== 0 || asn1.tag !== 16 || !asn1.structured) {
-    //     throw new Error("This can't be an X.509 certificate. Wrong data type.");
-    // }
-
-    var cert = {asn1};  // Include the raw parser result for debugging
-    var pieces = berListToJavaScript(asn1.contents);
-    // if (pieces.length !== 3) {
-    //     throw new Error("Certificate contains more than the three specified children.");
-    // }
-
-    cert.tbsCertificate     = parseTBSCertificate(pieces[0]);
-    cert.signatureAlgorithm = parseSignatureAlgorithm(pieces[1]);
-    cert.signatureValue     = parseSignatureValue(pieces[2]);
-
-    return cert;
-}
-
-function parseTBSCertificate(asn1) {
-    if (asn1.cls !== 0 || asn1.tag !== 16 || !asn1.structured) {
-        throw new Error("This can't be a TBSCertificate. Wrong data type.");
-    }
-    let tbs = {asn1};  // Include the raw parser result for debugging
-    let pieces = berListToJavaScript(asn1.contents);
-    if (pieces.length < 7) {
-        throw new Error("Bad TBS Certificate. There are fewer than the seven required children.");
-    }
-    tbs.version = pieces[0];
-    tbs.serialNumber = pieces[1];
-    tbs.signature = parseAlgorithmIdentifier(pieces[2]);
-    tbs.issuer = pieces[3];
-    tbs.validity = pieces[4];
-    tbs.subject = pieces[5];
-    tbs.subjectPublicKeyInfo = parseSubjectPublicKeyInfo(pieces[6]);
-    return tbs;  // Ignore optional fields for now
-}
-
-function parseSubjectPublicKeyInfo(asn1) {
-    if (asn1.cls !== 0 || asn1.tag !== 16 || !asn1.structured) {
-        throw new Error("Bad SPKI. Not a SEQUENCE.");
-    }
-    let spki = {asn1};
-    let pieces = berListToJavaScript(asn1.contents);
-    if (pieces.length !== 2) {
-        throw new Error("Bad SubjectPublicKeyInfo. Wrong number of child objects.");
-    }
-    spki.algorithm = parseAlgorithmIdentifier(pieces[0]);
-    spki.bits = berBitStringValue(pieces[1].contents);
-    return spki;
-}
-
-function berListToJavaScript(byteArray) {
-    let result = new Array();
-    let nextPosition = 0;
-    while (nextPosition < byteArray.length) {
-        let nextPiece = berToJavaScript(byteArray.subarray(nextPosition));
-        result.push(nextPiece);
-        nextPosition += nextPiece.byteLength;
-    }
-    return result;
-}
-
-function parseSignatureValue(asn1) {
-    if (asn1.cls !== 0 || asn1.tag !== 3 || asn1.structured) {
-        throw new Error("Bad signature value. Not a BIT STRING.");
-    }
-    let sig = {asn1};   // Useful for debugging
-    sig.bits = berBitStringValue(asn1.contents);
-    return sig;
-}
-
-function berBitStringValue(byteArray) {
-    return {
-        unusedBits: byteArray[0],
-        bytes: byteArray.subarray(1)
-    };
-}
-
-let parseSignatureAlgorithm = parseAlgorithmIdentifier;
-
-function parseAlgorithmIdentifier(asn1) {
-    if (asn1.cls !== 0 || asn1.tag !== 16 || !asn1.structured) {
-        throw new Error("Bad algorithm identifier. Not a SEQUENCE.");
-    }
-    let alg = {asn1};
-    let pieces = berListToJavaScript(asn1.contents);
-    if (pieces.length > 2) {
-        throw new Error("Bad algorithm identifier. Contains too many child objects.");
-    }
-    let encodedAlgorithm = pieces[0];
-    if (encodedAlgorithm.cls !== 0 || encodedAlgorithm.tag !== 6 || encodedAlgorithm.structured) {
-        throw new Error("Bad algorithm identifier. Does not begin with an OBJECT IDENTIFIER.");
-    }
-    alg.algorithm = berObjectIdentifierValue(encodedAlgorithm.contents);
-    if (pieces.length === 2) {
-        alg.parameters = {asn1: pieces[1]}; // Don't need this now, so not parsing it
-    } else {
-        alg.parameters = null;  // It is optional
-    }
-    return alg;
 }
 
 async function verifyIdToken(idToken, clientId) {
@@ -256,15 +156,13 @@ async function verifyIdToken(idToken, clientId) {
     }
     const x509 = (await res.json())[header.kid];
 
-    if (1) {
-        const der = base64ToBuffer(x509.match(/-----BEGIN CERTIFICATE-----(.*?)-----END CERTIFICATE-----/s)[1].replace(/\s/g, ''));
-        // console.log('x509', x509);
-        // console.log('der', [...der].map(x => x.toString().padStart(3, ' ') + '=0x' + x.toString(16).padStart(2, '0')));
-        console.log('der', der);
-        const elems = decodeDer(der);
-        console.log(JSON.stringify(elems, null, 4));
-        return;
+    const der = base64ToBuffer(x509.match(/-----BEGIN CERTIFICATE-----(.*?)-----END CERTIFICATE-----/s)[1].replace(/\s/g, ''));
+    const elems = decodeDer(der);
+    const elem = elems?.[0]?.der?.[0]?.der?.[6];
+    if (elem?.der?.[0]?.der?.[0]?.value !== '1.2.840.113549.1.1.1') {
+        throw new Error('Public key not found in cert');
     }
+    const spki = elem.data;
 
     if (0) {
         const obj = parseCertificate(asn1);
@@ -275,10 +173,11 @@ async function verifyIdToken(idToken, clientId) {
         // console.log('key1', key1);
     }
 
-    const cert = await crypto.createPublicKey(x509).export({type:'spki', format:'pem'});
-    console.log('cert', cert);
-    const spki = cert.match(/-----BEGIN PUBLIC KEY-----(.*?)-----END PUBLIC KEY-----/s)[1].replace(/\s/g, '');
+    // const cert = await crypto.createPublicKey(x509).export({type:'spki', format:'pem'});
+    // const spki = cert.match(/-----BEGIN PUBLIC KEY-----(.*?)-----END PUBLIC KEY-----/s)[1].replace(/\s/g, '');
+
     console.log('spki', spki);
+
     const algorithm = {name: 'RSASSA-PKCS1-v1_5', hash: {name: "SHA-256"}};
     const key = await crypto.subtle.importKey('spki', base64ToBuffer(spki), algorithm, true, ['verify']);
     console.log('key', key);
