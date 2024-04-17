@@ -1,18 +1,20 @@
 
-import {strict as assert} from 'node:assert';
-import * as crypto from 'node:crypto';
+//import * as crypto from 'node:crypto';
 
-//const base64ToBuffer = item => new Uint8Array(Buffer.from(item, 'base64url'));
 const base64ToBuffer = item => Uint8Array.from(atob(item.replace(/-/g, '+').replace(/_/g, '/')), ch => ch.charCodeAt(0));
 const base64ToText = item => new TextDecoder().decode(base64ToBuffer(item));
 const base64JSONToObject = item => JSON.parse(base64ToText(item));
 const textToBuffer = item => new TextEncoder().encode(item);
 const bufferToText = item => new TextDecoder().decode(item);
 const bufferToBase64 = item => btoa(Array.from(item, ch => String.fromCharCode(ch)).join('')).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const bufferToHex = item => [...item].map(x => x.toString(16).padStart(2, '0')).join('');
 
 function decodeDer(octets, depth = 0) {
 
-    function getClassFormTagLength() {
+    let elems = [];
+    let position = 0;
+
+    while (position < octets.length) {
         const start = position;
         const octet = octets[position++];
         const cls = octet >> 6;
@@ -34,47 +36,40 @@ function decodeDer(octets, depth = 0) {
                 length = (length << 8) | octets[position++];
             }
         }
-        //const data = [...octets.subarray(position, position + length)].map(x => x.toString(16).padStart(2, '0')).join('');
-        const data = octets.subarray(start, position + length);
-        return {class: cls, form, tag, length, data};
-    }
+        const asn1 = octets.subarray(start, position + length);
+        const data = octets.subarray(position, position + length);
 
-    let elems = [];
-    let position = 0;
-
-    while (position < octets.length) {
-        const result = getClassFormTagLength();
+        const result = {class: cls, form, tag, length, asn1, data};
         let value = ''
         if (result.class === 0) { // Universal tags
-            if (result.tag === 2) {
-                result.type = 'INTEGER';
-                value = BigInt(0);
-                for (let i = 0; i < result.length; i++) {
-                    value = value * 256n + BigInt(octets[position + i]);
-                }
-                value = value.toString();
-            }
-            if (result.tag === 1) {
-                result.type = 'BOOLEAN';
-                value = result.data;
-            }
-            if (result.tag === 3) {
-                result.type = 'BIT STRING';
-                result.extra = octets[position++];
-                if (result.extra !== 0) {
-                    console.log('extra bits');
-                }
-                //assert(result.extra == 0); // number of unused bits in last octet
-                value = [...octets.subarray(position + 1, position + result.length)].map(x => x.toString(16).padStart(2, '0')).join('').substr(0, 40);
-            }
-            if (result.tag === 4) {
-                result.type = 'OCTET STRING';
-                value = result.data;
-            }
-            if (result.tag === 5) {
-                result.type = 'NULL';
-                value = result.data;
-            }
+            // if (result.tag === 2) {
+            //     result.type = 'INTEGER';
+            //     value = BigInt(0);
+            //     for (let i = 0; i < result.length; i++) {
+            //         value = value * 256n + BigInt(octets[position + i]);
+            //     }
+            //     value = value.toString();
+            // }
+            // if (result.tag === 1) {
+            //     result.type = 'BOOLEAN';
+            //     value = !!octets[position];
+            // }
+            // if (result.tag === 3) {
+            //     result.type = 'BIT STRING';
+            //     result.extra = octets[position++];
+            //     if (result.extra !== 0) {
+            //         console.log('extra bits');
+            //     }
+            //     value = [...octets.subarray(position + 1, position + result.length)].map(x => x.toString(16).padStart(2, '0')).join('').substr(0, 40);
+            // }
+            // if (result.tag === 4) {
+            //     result.type = 'OCTET STRING';
+            //     value = bufferToHex(result.data);
+            // }
+            // if (result.tag === 5) {
+            //     result.type = 'NULL';
+            //     value = bufferToHex(result.data);
+            // }
             if (result.tag === 6) {
                 result.type = 'OBJECT IDENTIFIER';
                 const x = Math.min(Math.floor(octets[position] / 40), 2);
@@ -90,45 +85,39 @@ function decodeDer(octets, depth = 0) {
                 }
                 if (accum) value += '.' + accum;
             }
-            if (result.tag === 12) {
-                result.type = 'UTF8String';
-                value = bufferToText(octets.subarray(position, position + result.length));
-            }
-            if (result.tag === 16) {
-                result.type = 'SEQUENCE';
-            }
-            if (result.tag === 17) {
-                result.type = 'SET';
-            }
-            if (result.tag === 19) {
-                result.type = 'PrintableString';
-                value = [...octets.subarray(position, position + result.length)].join('');
-            }
-            if (result.tag === 20) {
-                result.type = 'T61String';
-                value = [...octets.subarray(position, position + result.length)].join('');
-            }
-            if (result.tag === 22) {
-                result.type = 'IA5STRING';
-                value = [...octets.subarray(position, position + result.length)].join('');
-            }
-            if (result.tag === 23) {
-                result.type = 'UTCTime';
-                value = bufferToText(octets.subarray(position, position + result.length));
-            }
-        }
-        if (value) delete result.tag;
-        const form = result.form;
-        delete result.form;
-        console.log('  '.repeat(depth), result.class, result.type || result.tag, `(${result.length})`, value);
-        if (form === 1) {
-            const der = decodeDer(octets.subarray(position, position + result.length), depth + 1);
-            // if (Array.isArray(der) && Array.isArray(der[0])) {
-            //     console.log('der/der', JSON.stringify(der[0], null, 4));
+            // if (result.tag === 12) {
+            //     result.type = 'UTF8String';
+            //     value = bufferToText(octets.subarray(position, position + result.length));
             // }
-            elems.push({type: result.type || result.tag, der, data: result.data});
+            // if (result.tag === 16) {
+            //     result.type = 'SEQUENCE';
+            // }
+            // if (result.tag === 17) {
+            //     result.type = 'SET';
+            // }
+            // if (result.tag === 19) {
+            //     result.type = 'PrintableString';
+            //     value = [...octets.subarray(position, position + result.length)].join('');
+            // }
+            // if (result.tag === 20) {
+            //     result.type = 'T61String';
+            //     value = [...octets.subarray(position, position + result.length)].join('');
+            // }
+            // if (result.tag === 22) {
+            //     result.type = 'IA5STRING';
+            //     value = [...octets.subarray(position, position + result.length)].join('');
+            // }
+            // if (result.tag === 23) {
+            //     result.type = 'UTCTime';
+            //     value = bufferToText(octets.subarray(position, position + result.length));
+            // }
+        }
+        console.log('  '.repeat(depth), result.class, result.type || result.tag, `(${result.length})`, value);
+        if (result.form === 1) {
+            const der = decodeDer(octets.subarray(position, position + result.length), depth + 1);
+            elems.push({type: result.type || result.tag, der, asn1: result.asn1, data: result.data});
         } else {
-            elems.push({type: result.type || result.tag, value, data: result.data});
+            elems.push({type: result.type || result.tag, value, asn1: result.asn1, data: result.data});
         }
         position += result.length;
     }
@@ -156,16 +145,16 @@ async function verifyIdToken(idToken, clientId) {
     }
     const x509 = (await res.json())[header.kid];
 
-
+    // Get spki directly from certificate
     const der = base64ToBuffer(x509.match(/-----BEGIN CERTIFICATE-----(.*?)-----END CERTIFICATE-----/s)[1].replace(/\s/g, ''));
     const elems = decodeDer(der);
     const elem = elems?.[0]?.der?.[0]?.der?.[6];
     if (elem?.der?.[0]?.der?.[0]?.value !== '1.2.840.113549.1.1.1') {
         throw new Error('Public key not found in cert');
     }
-    const spki = elem.data;
+    const spki = elem.asn1;
 
-
+    // Get spki using crypto API
     // const cert = await crypto.createPublicKey(x509).export({type:'spki', format:'pem'});
     // const spki = base64ToBuffer(cert.match(/-----BEGIN PUBLIC KEY-----(.*?)-----END PUBLIC KEY-----/s)[1].replace(/\s/g, ''));
 
