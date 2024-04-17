@@ -8,6 +8,7 @@ const textToBuffer = item => new TextEncoder().encode(item);
 const bufferToText = item => new TextDecoder().decode(item);
 const bufferToBase64 = item => btoa(Array.from(item, ch => String.fromCharCode(ch)).join('')).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const bufferToHex = item => [...item].map(x => x.toString(16).padStart(2, '0')).join('');
+const bufferToBits = item => [...item].map(x => x.toString(2).padStart(8, '0')).join('');
 
 function decodeDer(octets, depth = 0) {
 
@@ -60,7 +61,8 @@ function decodeDer(octets, depth = 0) {
             //     if (result.extra !== 0) {
             //         console.log('extra bits');
             //     }
-            //     value = [...octets.subarray(position + 1, position + result.length)].map(x => x.toString(16).padStart(2, '0')).join('').substr(0, 40);
+            //     value = bufferToBits(octets.subarray(position, position + result.length));
+            //     if (value.length > 69) value = value.slice(0, 69) + '...';
             // }
             // if (result.tag === 4) {
             //     result.type = 'OCTET STRING';
@@ -112,10 +114,10 @@ function decodeDer(octets, depth = 0) {
             //     value = bufferToText(octets.subarray(position, position + result.length));
             // }
         }
-        console.log('  '.repeat(depth), result.class, result.type || result.tag, `(${result.length})`, value);
+        // console.log('  '.repeat(depth), result.class, result.type || result.tag, `(${result.length})`, value);
         if (result.form === 1) {
             const der = decodeDer(octets.subarray(position, position + result.length), depth + 1);
-            elems.push({type: result.type || result.tag, der, asn1: result.asn1, data: result.data});
+            elems.push({type: result.type || result.tag, der  , asn1: result.asn1, data: result.data});
         } else {
             elems.push({type: result.type || result.tag, value, asn1: result.asn1, data: result.data});
         }
@@ -170,8 +172,8 @@ async function verifyIdToken(idToken, clientId) {
 const idToken = 'eyJhbGciOiJSUzI1NiIsImtpZCI6ImYyOThjZDA3NTlkOGNmN2JjZTZhZWNhODExNmU4ZjYzMDlhNDQwMjAiLCJ0eXAiOiJKV1QifQ.eyJuYW1lIjoiVGltIEtheSIsInBpY3R1cmUiOiJodHRwczovL2xoMy5nb29nbGV1c2VyY29udGVudC5jb20vYS9BQ2c4b2NLWkk1SHFSRlJWdEl1aG5kRnZlSDNXVnBJY2VqUUlfNWhYc0ZHb0RYN0FKTjg9czk2LWMiLCJpc3MiOiJodHRwczovL3NlY3VyZXRva2VuLmdvb2dsZS5jb20vcGNiYXJ0LTYyY2IxIiwiYXVkIjoicGNiYXJ0LTYyY2IxIiwiYXV0aF90aW1lIjoxNzEzMTE4NDY3LCJ1c2VyX2lkIjoiY1o3UWY2V05VR2V4NHRQc1pxRXV4eFExMk1mMSIsInN1YiI6ImNaN1FmNldOVUdleDR0UHNacUV1eHhRMTJNZjEiLCJpYXQiOjE3MTMxMTg0NjgsImV4cCI6MTcxMzEyMjA2OCwiZW1haWwiOiJ0aW1rYXlAZ21haWwuY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsImZpcmViYXNlIjp7ImlkZW50aXRpZXMiOnsiZ29vZ2xlLmNvbSI6WyIxMDY5Mzg1MDE5MjI5MTM3NDM4OTIiXSwiZW1haWwiOlsidGlta2F5QGdtYWlsLmNvbSJdfSwic2lnbl9pbl9wcm92aWRlciI6Imdvb2dsZS5jb20ifX0.BLnmDnN3MtcrOew4KbREHmsar_Ty2fPp8a8CxgeSw9om5x7GWOH0_h7qhT39rgWOlcLoam3U-rYNsF9x1k_sVv0P-erJ6ZoxfxKkY31MZxLCTkGvIoQmXsfLSwmhOSBt5xY2DHjoonP3lDZpdmiIat56frwGFKCt3nzuKibUjbxpYAUuZ2LNHpT0gO7dLNZ85VKYyyGXYYpiys_TxbQTviXppUX0zj0FJLcdZ92ZRg3lp05vrt4bSr6EWjFv-r7pkQjBdz87Ju-K-lnz2DnAUddJY0OtZExxXtxJvY3zjsw4QKacwj5vsZV750jSBwnMYtwkjn-7f9AyvfVFBNx-EA'
 
 try {
-    let decoded = await verifyIdToken(idToken, 'pcbart-62cb1');
-    console.log({decoded});
+    let verified = await verifyIdToken(idToken, 'pcbart-62cb1');
+    console.log({verified});
 } catch (err) {
     console.log(err);
 }
