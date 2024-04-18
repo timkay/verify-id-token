@@ -5,7 +5,7 @@ const base64ToText = item => new TextDecoder().decode(base64ToBuffer(item));
 const base64JSONToObject = item => JSON.parse(base64ToText(item));
 const textToBuffer = item => new TextEncoder().encode(item);
 const bufferToText = item => new TextDecoder().decode(item);
-const bufferToBase64 = item => btoa(Array.from(item, ch => String.fromCharCode(ch)).join('')).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+// const bufferToBase64 = item => btoa(Array.from(item, ch => String.fromCharCode(ch)).join('')).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const bufferToHex = item => [...item].map(x => x.toString(16).padStart(2, '0')).join('');
 const bufferToBits = item => [...item].map(x => x.toString(2).padStart(8, '0')).join('');
 
