@@ -1,4 +1,3 @@
-
 //import * as crypto from 'node:crypto';
 
 const base64ToBuffer = item => Uint8Array.from(atob(item.replace(/-/g, '+').replace(/_/g, '/')), ch => ch.charCodeAt(0));
@@ -11,7 +10,6 @@ const bufferToHex = item => [...item].map(x => x.toString(16).padStart(2, '0')).
 const bufferToBits = item => [...item].map(x => x.toString(2).padStart(8, '0')).join('');
 
 function decodeDer(octets, depth = 0) {
-
     let elems = [];
     let position = 0;
 
@@ -39,7 +37,6 @@ function decodeDer(octets, depth = 0) {
         }
         const asn1 = octets.subarray(start, position + length);
         const data = octets.subarray(position, position + length);
-
         const result = {class: cls, form, tag, length, asn1, data};
         let value = ''
         if (result.class === 0) { // Universal tags
@@ -109,56 +106,83 @@ function decodeDer(octets, depth = 0) {
             //     result.type = 'IA5STRING';
             //     value = [...octets.subarray(position, position + result.length)].join('');
             // }
-            // if (result.tag === 23) {
-            //     result.type = 'UTCTime';
-            //     value = bufferToText(octets.subarray(position, position + result.length));
-            // }
+            if (result.tag === 23) {
+                result.type = 'UTCTime';
+                value = bufferToText(octets.subarray(position, position + result.length));
+            }
         }
         // console.log('  '.repeat(depth), result.class, result.type || result.tag, `(${result.length})`, value);
         if (result.form === 1) {
-            const der = decodeDer(octets.subarray(position, position + result.length), depth + 1);
-            elems.push({type: result.type || result.tag, der  , asn1: result.asn1, data: result.data});
-        } else {
-            elems.push({type: result.type || result.tag, value, asn1: result.asn1, data: result.data});
+            value = decodeDer(octets.subarray(position, position + result.length), depth + 1);
         }
+        elems.push({type: result.type || result.tag, value, asn1: result.asn1, data: result.data});
         position += result.length;
     }
 
     return elems;
 }
 
-async function verifyIdToken(idToken, clientId) {
+async function fetchVerifyKey(kid) {
 
-    let issuer = `https://securetoken.google.com/${clientId}`;
+    // check if public key is already cached
+
     const certificateURL = 'https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com';
-    const now = Math.floor(Date.now() / 1000);
-
-    let [encodedHeader, encodedPayload, encodedSignature] = idToken.split('.');
-    const header = base64JSONToObject(encodedHeader);
-    const payload = base64JSONToObject(encodedPayload);
-
-    if (payload.iss != issuer) throw new Error('Token is improperly issued');
-    // if (!(payload.iat <= now && now <= payload.exp)) throw new Error('Token is expired');
-
     const res = await fetch(certificateURL);
     if (!res.ok) {
         const error = await res.json().then((data) => data.error.message).catch(() => undefined);
         throw new FetchError(error ?? "Failed to fetch the public key", {response: res});
     }
-    const x509 = (await res.json())[header.kid];
+    const x509 = (await res.json())[kid];
+
+    // if (true) {
+    //     // get spki using crypto api
+    //     // (uncomment import crypto at top of file)
+    //     return await crypto.createPublicKey(x509).export({type: 'spki', format: 'der'});
+    // }
 
     // Get spki directly from certificate
     const der = base64ToBuffer(x509.match(/-----BEGIN CERTIFICATE-----(.*?)-----END CERTIFICATE-----/s)[1].replace(/\s/g, ''));
     const elems = decodeDer(der);
-    const elem = elems?.[0]?.der?.[0]?.der?.[6];
-    if (elem?.der?.[0]?.der?.[0]?.value !== '1.2.840.113549.1.1.1') {
+
+    if (elems[0].value[0].value[2].value[0].value !== '1.2.840.113549.1.1.5') {
+        throw new Error('Certificate is not recognized');
+    }
+
+    const elemValid = elems[0].value[0].value[4].value;
+    const notBefore = elemValid[0].value;
+    const notAfter = elemValid[1].value;
+
+    const elemKey = elems[0].value[0].value[6];
+    if (elemKey.value[0].value[0].value !== '1.2.840.113549.1.1.1') {
         throw new Error('Public key not found in cert');
     }
-    const spki = elem.asn1;
 
-    // Get spki using crypto API
-    // const cert = await crypto.createPublicKey(x509).export({type:'spki', format:'pem'});
-    // const spki = base64ToBuffer(cert.match(/-----BEGIN PUBLIC KEY-----(.*?)-----END PUBLIC KEY-----/s)[1].replace(/\s/g, ''));
+    // check that it is not before notBefore
+
+    return {spki: elemKey.asn1, notBefore, notAfter};
+}
+
+async function getVerifyKey(kid) {
+    // check if kid spki is cached
+    const {spki, notBefore, notAfter} = await fetchVerifyKey(kid);
+    // cache spki until notAfter
+    return spki;
+}
+
+async function verifyIdToken(idToken, clientId) {
+
+    let issuer = `https://securetoken.google.com/${clientId}`;
+    let [encodedHeader, encodedPayload, encodedSignature] = idToken.split('.');
+
+    const header = base64JSONToObject(encodedHeader);
+    const payload = base64JSONToObject(encodedPayload);
+
+    if (payload.iss != issuer) throw new Error('Token is improperly issued');
+
+    const now = Math.floor(Date.now() / 1000);
+    // if (!(payload.iat <= now && now <= payload.exp)) throw new Error('Token is expired');
+
+    const spki = await getVerifyKey(header.kid);
 
     const algorithm = {name: 'RSASSA-PKCS1-v1_5', hash: {name: "SHA-256"}};
     const key = await crypto.subtle.importKey('spki', spki, algorithm, true, ['verify']);
