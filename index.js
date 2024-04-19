@@ -1,4 +1,3 @@
-//import * as crypto from 'node:crypto';
 
 const base64ToBuffer = item => Uint8Array.from(atob(item.replace(/-/g, '+').replace(/_/g, '/')), ch => ch.charCodeAt(0));
 const base64ToText = item => new TextDecoder().decode(base64ToBuffer(item));
@@ -37,44 +36,45 @@ function decodeDer(octets, depth = 0) {
         }
         const asn1 = octets.subarray(start, position + length);
         const data = octets.subarray(position, position + length);
-        const result = {class: cls, form, tag, length, asn1, data};
-        let value = ''
-        if (result.class === 0) { // Universal tags
-            // if (result.tag === 2) {
-            //     result.type = 'INTEGER';
+        let type = tag;
+        let value = '';
+        let extra;
+        if (cls === 0) { // Universal tags
+            // if (tag === 2) {
+            //     type = 'INTEGER';
             //     value = BigInt(0);
-            //     for (let i = 0; i < result.length; i++) {
+            //     for (let i = 0; i < length; i++) {
             //         value = value * 256n + BigInt(octets[position + i]);
             //     }
             //     value = value.toString();
             // }
-            // if (result.tag === 1) {
-            //     result.type = 'BOOLEAN';
+            // if (tag === 1) {
+            //     type = 'BOOLEAN';
             //     value = !!octets[position];
             // }
-            // if (result.tag === 3) {
-            //     result.type = 'BIT STRING';
-            //     result.extra = octets[position++];
-            //     if (result.extra !== 0) {
+            // if (tag === 3) {
+            //     type = 'BIT STRING';
+            //     extra = octets[position++];
+            //     if (extra !== 0) {
             //         console.log('extra bits');
             //     }
-            //     value = bufferToBits(octets.subarray(position, position + result.length));
+            //     value = bufferToBits(octets.subarray(position, position + length));
             //     if (value.length > 69) value = value.slice(0, 69) + '...';
             // }
-            // if (result.tag === 4) {
-            //     result.type = 'OCTET STRING';
-            //     value = bufferToHex(result.data);
+            // if (tag === 4) {
+            //     type = 'OCTET STRING';
+            //     value = bufferToHex(data);
             // }
-            // if (result.tag === 5) {
-            //     result.type = 'NULL';
-            //     value = bufferToHex(result.data);
+            // if (tag === 5) {
+            //     type = 'NULL';
+            //     value = bufferToHex(data);
             // }
-            if (result.tag === 6) {
-                result.type = 'OBJECT IDENTIFIER';
+            if (tag === 6) {
+                type = 'OBJECT IDENTIFIER';
                 const x = Math.min(Math.floor(octets[position] / 40), 2);
                 value = x + '.' + (octets[position] - 40 * x);
                 let accum = 0;
-                for (let i = 1; i < result.length; i++) {
+                for (let i = 1; i < length; i++) {
                     accum = (accum << 7) + (octets[position + i] & 0x7f);
                     if (!(octets[position + i] & 0x80)) {
                         value += '.' + accum.toString();
@@ -84,39 +84,38 @@ function decodeDer(octets, depth = 0) {
                 }
                 if (accum) value += '.' + accum;
             }
-            // if (result.tag === 12) {
-            //     result.type = 'UTF8String';
-            //     value = bufferToText(octets.subarray(position, position + result.length));
+            // if (tag === 12) {
+            //     type = 'UTF8String';
+            //     value = bufferToText(octets.subarray(position, position + length));
             // }
-            // if (result.tag === 16) {
-            //     result.type = 'SEQUENCE';
+            // if (tag === 16) {
+            //     type = 'SEQUENCE';
             // }
-            // if (result.tag === 17) {
-            //     result.type = 'SET';
+            // if (tag === 17) {
+            //     type = 'SET';
             // }
-            // if (result.tag === 19) {
-            //     result.type = 'PrintableString';
-            //     value = [...octets.subarray(position, position + result.length)].join('');
+            // if (tag === 19) {
+            //     type = 'PrintableString';
+            //     value = [...octets.subarray(position, position + length)].join('');
             // }
-            // if (result.tag === 20) {
-            //     result.type = 'T61String';
-            //     value = [...octets.subarray(position, position + result.length)].join('');
+            // if (tag === 20) {
+            //     type = 'T61String';
+            //     value = [...octets.subarray(position, position + length)].join('');
             // }
-            // if (result.tag === 22) {
-            //     result.type = 'IA5STRING';
-            //     value = [...octets.subarray(position, position + result.length)].join('');
+            // if (tag === 22) {
+            //     type = 'IA5STRING';
+            //     value = [...octets.subarray(position, position + length)].join('');
             // }
-            if (result.tag === 23) {
-                result.type = 'UTCTime';
-                value = bufferToText(octets.subarray(position, position + result.length));
+            if (tag === 23) {
+                type = 'UTCTime';
+                value = bufferToText(octets.subarray(position, position + length));
             }
         }
-        // console.log('  '.repeat(depth), result.class, result.type || result.tag, `(${result.length})`, value);
-        if (result.form === 1) {
-            value = decodeDer(octets.subarray(position, position + result.length), depth + 1);
-        }
-        elems.push({type: result.type || result.tag, value, asn1: result.asn1, data: result.data});
-        position += result.length;
+        // console.log('  '.repeat(depth), cls, type, `(${length})`, value);
+        const node = form === 1? decodeDer(octets.subarray(position, position + length), depth + 1): [];
+        Object.assign(node, {type, value, asn1, data});
+        elems.push(node);
+        position += length;
     }
 
     return elems;
@@ -136,7 +135,7 @@ async function fetchVerifyKey(kid) {
 
     // if (true) {
     //     // get spki using crypto api
-    //     // (uncomment import crypto at top of file)
+    //     // (add to top: import * as crypto from 'node:crypto';)
     //     return await crypto.createPublicKey(x509).export({type: 'spki', format: 'der'});
     // }
 
@@ -144,22 +143,22 @@ async function fetchVerifyKey(kid) {
     const der = base64ToBuffer(x509.match(/-----BEGIN CERTIFICATE-----(.*?)-----END CERTIFICATE-----/s)[1].replace(/\s/g, ''));
     const elems = decodeDer(der);
 
-    if (elems[0].value[0].value[2].value[0].value !== '1.2.840.113549.1.1.5') {
+    if (elems[0][0][2][0].value !== '1.2.840.113549.1.1.5') {
         throw new Error('Certificate is not recognized');
     }
 
-    const elemValid = elems[0].value[0].value[4].value;
-    const notBefore = elemValid[0].value;
-    const notAfter = elemValid[1].value;
+    const validNode = elems[0][0][4];
+    const notBefore = validNode[0].value;
+    const notAfter = validNode[1].value;
 
-    const elemKey = elems[0].value[0].value[6];
-    if (elemKey.value[0].value[0].value !== '1.2.840.113549.1.1.1') {
+    const keyNode = elems[0][0][6];
+    if (keyNode[0][0].value !== '1.2.840.113549.1.1.1') {
         throw new Error('Public key not found in cert');
     }
 
     // check that it is not before notBefore
 
-    return {spki: elemKey.asn1, notBefore, notAfter};
+    return {spki: keyNode.asn1, notBefore, notAfter};
 }
 
 async function getVerifyKey(kid) {
