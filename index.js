@@ -37,16 +37,17 @@ function decodeDer(octets, depth = 0) {
             }
         }
         const asn1 = octets.subarray(start, position + length);
-        // const data = octets.subarray(position, position + length);
         // class 0=universal, 1=application, 2=context-specific, 3=private
-        const type = [{ // universal asn.1 tags
+        const type = [{
+            // universal asn.1 tags
             1: 'BOOLEAN', 2: 'INTEGER', 3: 'BIT STRING', 4: 'OCTET STRING', 5: 'NULL', 6: 'OBJECT IDENTIFIER',
             7: 'ObjectDescriptor', 8: 'EXTERNAL', 9: 'REAL', 10: 'ENUMERATED', 11: 'EMBEDDED PDV', 12: 'UTF8String',
             13: 'RELATIVE-OID', 14: 'TIME', 15: '???', 16: 'SEQUENCE', 17: 'SET', 18: 'NUMERIC STRING',
             19: 'PrintableSTring', 20: 'T61String', 21: 'VideotexSTring', 22: 'IA5String', 23: 'UTCTime',
             24: 'GeneralizedTime', 25: 'GraphString', 26: 'VisibleString', 27: 'GeneralString', 28: 'UniversalString',
             29: 'CHARACTER STRING', 30: 'BMPString', 31: 'DATE', 32: 'TIME-OF-DAY', 33: 'DATE-TIME', 34: 'DURATION',
-        }, {}, { // context-specific tags for x.509 certificates
+        }, {}, {
+            // context-specific tags for x.509 certificates
             0: 'Version', 3: 'Extensions',
         }][cls]?.[tag] ?? `${cls}-${tag}`;
 
@@ -123,13 +124,6 @@ async function fetchVerifyKey(kid) {
         throw new FetchError(error ?? "Failed to fetch the public key", {response: res});
     }
     const x509 = (await res.json())[kid];
-
-    // if (true) {
-    //     // get spki using crypto api
-    //     // (add to top: import * as crypto from 'node:crypto';)
-    //     return await crypto.createPublicKey(x509).export({type: 'spki', format: 'der'});
-    // }
-
     // Get spki directly from certificate
     const der = base64ToBuffer(x509.match(/-----BEGIN CERTIFICATE-----(.*?)-----END CERTIFICATE-----/s)[1].replace(/\s/g, ''));
     const elems = decodeDer(der);
