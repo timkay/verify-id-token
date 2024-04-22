@@ -1,4 +1,6 @@
 
+const debug = 1;
+
 const base64ToBuffer = item => Uint8Array.from(atob(item.replace(/-/g, '+').replace(/_/g, '/')), ch => ch.charCodeAt(0));
 const base64ToText = item => new TextDecoder().decode(base64ToBuffer(item));
 const base64JSONToObject = item => JSON.parse(base64ToText(item));
@@ -35,85 +37,74 @@ function decodeDer(octets, depth = 0) {
             }
         }
         const asn1 = octets.subarray(start, position + length);
-        const data = octets.subarray(position, position + length);
-        let type = tag;
+        // const data = octets.subarray(position, position + length);
+        // class 0=universal, 1=application, 2=context-specific, 3=private
+        const type = [{ // universal asn.1 tags
+            1: 'BOOLEAN', 2: 'INTEGER', 3: 'BIT STRING', 4: 'OCTET STRING', 5: 'NULL', 6: 'OBJECT IDENTIFIER',
+            7: 'ObjectDescriptor', 8: 'EXTERNAL', 9: 'REAL', 10: 'ENUMERATED', 11: 'EMBEDDED PDV', 12: 'UTF8String',
+            13: 'RELATIVE-OID', 14: 'TIME', 15: '???', 16: 'SEQUENCE', 17: 'SET', 18: 'NUMERIC STRING',
+            19: 'PrintableSTring', 20: 'T61String', 21: 'VideotexSTring', 22: 'IA5String', 23: 'UTCTime',
+            24: 'GeneralizedTime', 25: 'GraphString', 26: 'VisibleString', 27: 'GeneralString', 28: 'UniversalString',
+            29: 'CHARACTER STRING', 30: 'BMPString', 31: 'DATE', 32: 'TIME-OF-DAY', 33: 'DATE-TIME', 34: 'DURATION',
+        }, {}, { // context-specific tags for x.509 certificates
+            0: 'Version', 3: 'Extensions',
+        }][cls]?.[tag] ?? `${cls}-${tag}`;
+
         let value = '';
         let extra;
-        if (cls === 0) { // Universal tags
-            // if (tag === 2) {
-            //     type = 'INTEGER';
-            //     value = BigInt(0);
-            //     for (let i = 0; i < length; i++) {
-            //         value = value * 256n + BigInt(octets[position + i]);
-            //     }
-            //     value = value.toString();
-            // }
-            // if (tag === 1) {
-            //     type = 'BOOLEAN';
-            //     value = !!octets[position];
-            // }
-            // if (tag === 3) {
-            //     type = 'BIT STRING';
-            //     extra = octets[position++];
-            //     if (extra !== 0) {
-            //         console.log('extra bits');
-            //     }
-            //     value = bufferToBits(octets.subarray(position, position + length));
-            //     if (value.length > 69) value = value.slice(0, 69) + '...';
-            // }
-            // if (tag === 4) {
-            //     type = 'OCTET STRING';
-            //     value = bufferToHex(data);
-            // }
-            // if (tag === 5) {
-            //     type = 'NULL';
-            //     value = bufferToHex(data);
-            // }
-            if (tag === 6) {
-                type = 'OBJECT IDENTIFIER';
-                const x = Math.min(Math.floor(octets[position] / 40), 2);
-                value = x + '.' + (octets[position] - 40 * x);
-                let accum = 0;
-                for (let i = 1; i < length; i++) {
-                    accum = (accum << 7) + (octets[position + i] & 0x7f);
-                    if (!(octets[position + i] & 0x80)) {
-                        value += '.' + accum.toString();
-                        accum = 0;
-                        continue;
-                    }
-                }
-                if (accum) value += '.' + accum;
+
+        if (debug) {
+            if (type === 'BOOLEAN') {
+                value = !!octets[position];
             }
-            // if (tag === 12) {
-            //     type = 'UTF8String';
-            //     value = bufferToText(octets.subarray(position, position + length));
-            // }
-            // if (tag === 16) {
-            //     type = 'SEQUENCE';
-            // }
-            // if (tag === 17) {
-            //     type = 'SET';
-            // }
-            // if (tag === 19) {
-            //     type = 'PrintableString';
-            //     value = [...octets.subarray(position, position + length)].join('');
-            // }
-            // if (tag === 20) {
-            //     type = 'T61String';
-            //     value = [...octets.subarray(position, position + length)].join('');
-            // }
-            // if (tag === 22) {
-            //     type = 'IA5STRING';
-            //     value = [...octets.subarray(position, position + length)].join('');
-            // }
-            if (tag === 23) {
-                type = 'UTCTime';
+            if (type === 'INTEGER') {
+                value = BigInt(0);
+                for (let i = 0; i < length; i++) {
+                    value = value * 256n + BigInt(octets[position + i]);
+                }
+                value = value.toString();
+            }
+            if (type === 'BIT STRING') {
+                extra = octets[position++];
+                if (extra !== 0) {
+                    console.log('extra bits');
+                }
+                value = bufferToBits(octets.subarray(position, position + length));
+                if (value.length > 69) value = value.slice(0, 69) + '...';
+            }
+            if (type === 'OCTET STRING') {
+                value = bufferToHex(octets.subarray(position, position + length));
+            }
+        }
+        if (type === 'OBJECT IDENTIFIER') {
+            const x = Math.min(Math.floor(octets[position] / 40), 2);
+            value = x + '.' + (octets[position] - 40 * x);
+            let accum = 0;
+            for (let i = 1; i < length; i++) {
+                accum = (accum << 7) + (octets[position + i] & 0x7f);
+                if (!(octets[position + i] & 0x80)) {
+                    value += '.' + accum.toString();
+                    accum = 0;
+                    continue;
+                }
+            }
+            if (accum) value += '.' + accum;
+        }
+        if (debug) {
+            if (type === 'UTF8String') {
                 value = bufferToText(octets.subarray(position, position + length));
             }
         }
-        // console.log('  '.repeat(depth), cls, type, `(${length})`, value);
+        if (type === 'UTCTime') {
+            value = bufferToText(octets.subarray(position, position + length));
+        }
+        if (debug) {
+            let classTag = `${cls}-${tag}`;
+            classTag = '';
+            console.log('  '.repeat(depth), classTag, type, `(${length})`, value);
+        }
         const node = form === 1? decodeDer(octets.subarray(position, position + length), depth + 1): [];
-        Object.assign(node, {type, value, asn1, data});
+        Object.assign(node, {type, value, asn1});
         elems.push(node);
         position += length;
     }
@@ -147,9 +138,13 @@ async function fetchVerifyKey(kid) {
         throw new Error('Certificate is not recognized');
     }
 
+    // 240422194718Z
+    const toEpoch = date => Date.parse(date.replace(/^(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)Z$/,
+                                                    (_, y, mo, d, h, m, s) => `20${y}-${mo}-${d}T${h}:${m}:${s}`)) / 1000;
+
     const validNode = elems[0][0][4];
-    const notBefore = validNode[0].value;
-    const notAfter = validNode[1].value;
+    const notBefore = toEpoch(validNode[0].value);
+    const notAfter = toEpoch(validNode[1].value);
 
     const keyNode = elems[0][0][6];
     if (keyNode[0][0].value !== '1.2.840.113549.1.1.1') {
@@ -164,6 +159,7 @@ async function fetchVerifyKey(kid) {
 async function getVerifyKey(kid) {
     // check if kid spki is cached
     const {spki, notBefore, notAfter} = await fetchVerifyKey(kid);
+    console.log({notBefore, notAfter});
     // cache spki until notAfter
     return spki;
 }
