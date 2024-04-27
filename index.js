@@ -1,5 +1,5 @@
 
-const debug = 1;
+const debug = false;
 
 const base64ToBuffer = item => Uint8Array.from(atob(item.replace(/-/g, '+').replace(/_/g, '/')), ch => ch.charCodeAt(0));
 const base64ToText = item => new TextDecoder().decode(base64ToBuffer(item));
@@ -56,14 +56,14 @@ function decodeDer(octets, depth = 0) {
 
         if (debug) {
             if (type === 'BOOLEAN') {
-                value = !!octets[position];
+                value = !!octets[position]? 'true': 'false';
             }
             if (type === 'INTEGER') {
-                value = BigInt(0);
+                let accum = BigInt(0);
                 for (let i = 0; i < length; i++) {
-                    value = value * 256n + BigInt(octets[position + i]);
+                    accum = accum * 256n + BigInt(octets[position + i]);
                 }
-                value = value.toString();
+                value = accum.toString();
             }
             if (type === 'BIT STRING') {
                 extra = octets[position++];
@@ -114,27 +114,18 @@ function decodeDer(octets, depth = 0) {
 }
 
 async function fetchVerifyKey(kid) {
-
-    // check if public key is already cached
-
     const certificateURL = 'https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com';
     const res = await fetch(certificateURL);
-    if (!res.ok) {
-        const error = await res.json().then((data) => data.error.message).catch(() => undefined);
-        throw new FetchError(error ?? "Failed to fetch the public key", {response: res});
-    }
+    if (!res.ok) throw new Error('Failed to fetch the Google public key');
+
     const x509 = (await res.json())[kid];
-    if (!x509) {
-        throw new Error('X.509 certificate not found');
-    }
+    if (!x509) throw new Error('X.509 certificate not found');
 
     // Get spki directly from certificate
     const der = base64ToBuffer(x509.match(/-----BEGIN CERTIFICATE-----(.*?)-----END CERTIFICATE-----/s)[1].replace(/\s/g, ''));
     const elems = decodeDer(der);
 
-    if (elems[0][0][2][0].value !== '1.2.840.113549.1.1.5') {
-        throw new Error('Certificate is not recognized');
-    }
+    if (elems[0][0][2][0].value !== '1.2.840.113549.1.1.5') throw new Error('Certificate is not recognized');
 
     // 240422194718Z
     const toEpoch = date => Date.parse(date.replace(/^(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)(\d\d)Z$/,
@@ -145,11 +136,7 @@ async function fetchVerifyKey(kid) {
     const notAfter = toEpoch(validNode[1].value);
 
     const keyNode = elems[0][0][6];
-    if (keyNode[0][0].value !== '1.2.840.113549.1.1.1') {
-        throw new Error('Public key not found in cert');
-    }
-
-    // check that it is not before notBefore
+    if (keyNode[0][0].value !== '1.2.840.113549.1.1.1') throw new Error('Public key not found in cert');
 
     return {spki: keyNode.asn1, notBefore, notAfter};
 }
@@ -163,7 +150,6 @@ async function getVerifyKey(kid) {
 }
 
 async function verifyIdToken(idToken, clientId) {
-
     let issuer = `https://securetoken.google.com/${clientId}`;
     let [encodedHeader, encodedPayload, encodedSignature] = idToken.split('.');
 
@@ -173,7 +159,7 @@ async function verifyIdToken(idToken, clientId) {
     if (payload.iss != issuer) throw new Error('Token is improperly issued');
 
     const now = Math.floor(Date.now() / 1000);
-    // if (!(payload.iat <= now && now <= payload.exp)) throw new Error('Token is expired');
+    if (!(payload.iat <= now && now <= payload.exp)) throw new Error('Token is expired');
 
     const spki = await getVerifyKey(header.kid);
 
@@ -184,13 +170,4 @@ async function verifyIdToken(idToken, clientId) {
     const success = await crypto.subtle.verify(key.algorithm, key, signature, data);
 
     if (success) return payload;
-}
-
-const idToken = 'eyJhbGciOiJSUzI1NiIsImtpZCI6ImEyMzhkZDA0Y2JhYTU4MGIzMDRjODgxZTFjMDA4ZWMyOGZiYmFkZGMiLCJ0eXAiOiJKV1QifQ.eyJuYW1lIjoiVGltIEtheSIsInBpY3R1cmUiOiJodHRwczovL2xoMy5nb29nbGV1c2VyY29udGVudC5jb20vYS9BQ2c4b2NLWkk1SHFSRlJWdEl1aG5kRnZlSDNXVnBJY2VqUUlfNWhYc0ZHb0RYN0FKTjg9czk2LWMiLCJpc3MiOiJodHRwczovL3NlY3VyZXRva2VuLmdvb2dsZS5jb20vcGNiYXJ0LTYyY2IxIiwiYXVkIjoicGNiYXJ0LTYyY2IxIiwiYXV0aF90aW1lIjoxNzEyMDM0MjkyLCJ1c2VyX2lkIjoiY1o3UWY2V05VR2V4NHRQc1pxRXV4eFExMk1mMSIsInN1YiI6ImNaN1FmNldOVUdleDR0UHNacUV1eHhRMTJNZjEiLCJpYXQiOjE3MTM5MzAyMzcsImV4cCI6MTcxMzkzMzgzNywiZW1haWwiOiJ0aW1rYXlAZ21haWwuY29tIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsImZpcmViYXNlIjp7ImlkZW50aXRpZXMiOnsiZ29vZ2xlLmNvbSI6WyIxMDY5Mzg1MDE5MjI5MTM3NDM4OTIiXSwiZW1haWwiOlsidGlta2F5QGdtYWlsLmNvbSJdfSwic2lnbl9pbl9wcm92aWRlciI6Imdvb2dsZS5jb20ifX0.q_Q6_JRtv75Rxqbgq4frq4CNxMWZ1v967zLIA3dQFMziL3sOfMgb7mBRf6yZF6ikP5c7D4eohHfbg3PKMk9UV3NoXVy5zoH2WsbzorzAqeSyV2Fl-ElHdgeHRJcRyMlKeWSsxvfu03Ki1ZczzlRzFWIeDCIhbq_3eNEysx6Vn3uRTlBL38lfMdySSR-t2H23LZK262nXw4XnYubVjirItOemY30wX3XGFA67woQpPz209mAjEGeeHQP5j3D25QKF3kJZZGbRRMlJoN_dCVYbcI5JGVzWJqCF1u0hVYlG5b2QTpGg0fC5IAe4hCczUiY7AVCsXjEUSW6HxHUL3QHJAw'
-
-try {
-    let verified = await verifyIdToken(idToken, 'pcbart-62cb1');
-    console.log({verified});
-} catch (err) {
-    console.log(err);
 }
