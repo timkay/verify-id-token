@@ -2,5 +2,29 @@
   "type": "module",
   "dependencies": {
     "jose": "^5.2.4"
-  }
+  },
+  "name": "@timkay/id-token-verify",
+  "description": "This code verifies Firebase Auth id-tokens, so that Firebase Auth can be used with other platforms, such as Cloudflare Workers.",
+  "version": "0.1.1",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/timkay/id-token-verify.git"
+  },
+  "keywords": [
+    "firebase",
+    "auth",
+    "authentication",
+    "cloudflare",
+    "workers"
+  ],
+  "author": "timkay",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/timkay/id-token-verify/issues"
+  },
+  "homepage": "https://github.com/timkay/id-token-verify#readme"
 }

@@ -149,7 +149,7 @@ async function getVerifyKey(kid) {
     return spki;
 }
 
-async function verifyIdToken(idToken, clientId) {
+export async function verifyIdToken(idToken, clientId) {
     let issuer = `https://securetoken.google.com/${clientId}`;
     let [encodedHeader, encodedPayload, encodedSignature] = idToken.split('.');
 
@@ -168,6 +168,5 @@ async function verifyIdToken(idToken, clientId) {
     const signature = base64ToBuffer(encodedSignature);
     const data = textToBuffer(encodedHeader + '.' + encodedPayload);
     const success = await crypto.subtle.verify(key.algorithm, key, signature, data);
-
     if (success) return payload;
 }
