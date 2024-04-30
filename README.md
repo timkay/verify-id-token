@@ -53,4 +53,4 @@ X.509 certificates are encoded in the `ASN.1` protocol, which is decoded by this
 
 An alternate strategy was suggested by Claude AI: simply identify the start of the public key by the sequence of bytes, and then extract that sequence from the `X.509` certificate. Such a shortcut is brittle and also does not extract the key's `valid` timestamps.
 
-A debug setting causes the `ASN.1` data to be dumped.
+A debug setting causes the `X.509` certificate's `ASN.1` data to be dumped.
