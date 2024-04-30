@@ -10,9 +10,9 @@ An id-token is signed by the authentiation provider's private key. This code ret
 2. If the key is not cached, fetch the corresponding `X.509` certificate from the provider, extract the public key from the certificate, cache the public key for next time,
 3. Verify the id-token using the public key and the built-in functions `crypto.subtle.importKey()` and `crypto.subtle.verify()`.
 
-The big challenge is that the public key is wrapped in the `X.509` certificate and needs to be extracted. Some platforms have native functions to extract the public key, such as Chrome's `crytpo.importKey()`. (Nodejs and Cloudflare Workers do not have the `crypto` API). The `subtle.crypto.importKey()` does not import `X.509` certificates, leaving developers to rely on third-party libraries, which are typically large, complex, and inefficient.
+The big challenge is that the public key is wrapped in the `X.509` certificate and needs to be extracted. Some platforms have native functions to extract the public key, such as Chrome's `crytpo.importKey()`. (Nodejs and Cloudflare Workers do not have the `crypto` API). The `subtle.crypto.importKey()` does not import `X.509` certificates, leaving developers to rely on third-party libraries, which are typically large, complex, and inefficient. The situation fails the KISS and DRY principles.
 
-This third-party library is designed to handle this single use case as simply and efficiently as possible.
+This third-party library is designed to handle this single use case as simply and efficiently as possible. KISS
 
 ## Usage ##
 
