@@ -49,6 +49,8 @@ firebase.auth().onAuthStateChanged(async user => {
 
 It is possible that `crypto.subtle.importKey()` will import `X.509` certificates, and I wasn't able to figure out how. If so, then this library is not necessary. Feedback, please!
 
-X.509 certificates are encoded in the ASN.1 protocol, which is decoded by this library. The public key is then directly extracted.
+X.509 certificates are encoded in the `ASN.1` protocol, which is decoded by this library. The public key is then directly extracted.
 
 An alternate strategy was suggested by Claude AI: simply identify the start of the public key by the sequence of bytes, and then extract that sequence from the `X.509` certificate. Such a shortcut is brittle and also does not extract the key's `valid` timestamps.
+
+A debug setting causes the `ASN.1` data to be dumped.
