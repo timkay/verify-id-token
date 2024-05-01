@@ -23,7 +23,7 @@ const payload = verifyIdToken(idToken, projectId);
 console.log(payload)
 ```
 
-If `idToken` verified, then payload will contain the user metadata (displayName, email, etc.). If verification fails, an error will be thrown.
+If `idToken` verifies successfully, then payload will contain the user metadata (displayName, email, etc.). If verification fails, an error will be thrown.
 
 The fetched `X.509` certificate is validated before use. If the certificate is expired, in the wrong format, etc., an error will be thrown.
 The `idToken` is validated before being verified. If the token is expired, in the wrong format, or for the wrong project, an error will be thrown.
