@@ -30,7 +30,7 @@ The `idToken` is validated before being verified. If the token is expired, in th
 
 ## Example ##
 
-The following code demonstrates using `user.getIdToken()` to get the id-token and then verify it. This code is for demonstration purposes only. In practice, the id-token would be sent to the API, where the API would verify the id-token, and thus know that the user is who they claim to be.
+The following code demonstrates using Firebase Auth `user.getIdToken()` to get the id-token and then verify it. This code is for demonstration purposes only. In practice, the id-token would be sent to the API, where the API would verify the id-token, and thus know that the user is who they claim to be.
 
 ```
 firebase.auth().onAuthStateChanged(async user => {
