@@ -1,5 +1,22 @@
+/*
+ * Verify id-tokens as simply as possible.
+ *
+ * This code verifies Firebase Auth id-tokens, so that Firebase Auth
+ * can be used with other platforms, such as Cloudflare Workers.
+ */
 
-const debug = false;
+/* Settings:
+ *   debug -    Turn on debugging, so that ASN.1 certificate is
+ *              recursively decoded and displayed.
+ *   tokenExp - Check for token expiration and throw an error.
+ *              Turned off for testing because the test id-token
+ *              will be expired.
+ */
+
+export const setting = {
+    debug: false,
+    tokenExp: true,             // check for token expiration
+};
 
 const base64ToBuffer = item => Uint8Array.from(atob(item.replace(/-/g, '+').replace(/_/g, '/')), ch => ch.charCodeAt(0));
 const base64ToText = item => new TextDecoder().decode(base64ToBuffer(item));
@@ -54,7 +71,7 @@ function decodeDer(octets, depth = 0) {
         let value = '';
         let extra;
 
-        if (debug) {
+        if (setting.debug) {
             if (type === 'BOOLEAN') {
                 value = !!octets[position]? 'true': 'false';
             }
@@ -91,7 +108,7 @@ function decodeDer(octets, depth = 0) {
             }
             if (accum) value += '.' + accum;
         }
-        if (debug) {
+        if (setting.debug) {
             if (type === 'UTF8String') {
                 value = bufferToText(octets.subarray(position, position + length));
             }
@@ -99,7 +116,7 @@ function decodeDer(octets, depth = 0) {
         if (type === 'UTCTime') {
             value = bufferToText(octets.subarray(position, position + length));
         }
-        if (debug) {
+        if (setting.debug) {
             let classTag = `${cls}-${tag}`;
             classTag = '';
             console.log('  '.repeat(depth), classTag, type, `(${length})`, value);
@@ -141,6 +158,10 @@ async function fetchVerifyKey(kid) {
     return {spki: keyNode.asn1, notBefore, notAfter};
 }
 
+/* Get public key either from cache or by fetching. The
+ * key can be set to automatically expore at notAfter.
+ */
+
 async function getVerifyKey(kid) {
     // check if kid spki is cached
     const {spki, notBefore, notAfter} = await fetchVerifyKey(kid);
@@ -150,16 +171,15 @@ async function getVerifyKey(kid) {
 }
 
 export async function verifyIdToken(idToken, clientId) {
-    let issuer = `https://securetoken.google.com/${clientId}`;
     let [encodedHeader, encodedPayload, encodedSignature] = idToken.split('.');
 
     const header = base64JSONToObject(encodedHeader);
     const payload = base64JSONToObject(encodedPayload);
 
-    if (payload.iss != issuer) throw new Error('Token is improperly issued');
+    if (clientId && payload.iss !== `https://securetoken.google.com/${clientId}`) throw new Error('Token is improperly issued');
 
     const now = Math.floor(Date.now() / 1000);
-    //if (!(payload.iat <= now && now <= payload.exp)) throw new Error('Token is expired');
+    if (setting.tokenExp && !(payload.iat <= now && now <= payload.exp)) throw new Error('Token is expired');
 
     const spki = await getVerifyKey(header.kid);
 
