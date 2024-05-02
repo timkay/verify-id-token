@@ -6,7 +6,7 @@
  */
 
 /* Settings:
- *   debug -    Turn on debugging, so that ASN.1 certificate is
+ *   debug    - Turn on debugging, so that ASN.1 certificate is
  *              recursively decoded and displayed.
  *   tokenExp - Check for token expiration and throw an error.
  *              Turned off for testing because the test id-token
