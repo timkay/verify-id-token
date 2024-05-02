@@ -190,3 +190,5 @@ export async function verifyIdToken(idToken, clientId) {
     const success = await crypto.subtle.verify(key.algorithm, key, signature, data);
     if (success) return payload;
 }
+
+export default {setting, verifyIdToken};
