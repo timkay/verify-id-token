@@ -36,7 +36,7 @@ async function fetchVerifyJWK(kid) {
 async function getVerifyJWK(kid) {
     const cache = typeof caches !== 'undefined' && caches.default;
     if (!cache) return [/* key */ await fetchVerifyJWK(kid), /* cached */ false]; // not Cloudflare Workers
-    const url = `https://verify-id-token/google/2/${kid}`;
+    const url = `https://verify-id-token/google/0/${kid}`;
     const res = await cache.match(url);
     if (res) return [/* key */ await res.json(), /* cached */ true];
     const key = await fetchVerifyJWK(kid);
