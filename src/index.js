@@ -35,14 +35,14 @@ async function fetchVerifyJWK(kid) {
  */
 async function getVerifyJWK(kid) {
     const cache = typeof caches !== 'undefined' && caches.default;
-    if (!cache) return [await fetchVerifyJWK(kid), false]; // not Cloudflare Workers
-    const url = `https://verify-id-token/google/6/${kid}`;
+    if (!cache) return [/* key */ await fetchVerifyJWK(kid), /* cached */ false]; // not Cloudflare Workers
+    const url = `https://verify-id-token/google/2/${kid}`;
     const res = await cache.match(url);
-    if (res) return [/* key */ await res.json(), /* not cached */ false];
+    if (res) return [/* key */ await res.json(), /* cached */ true];
     const key = await fetchVerifyJWK(kid);
     // context.waitUntil(cache.put(url, new Response(JSON.stringify(key), {headers: {'Cache-Control': `max-age=${60 * 60}`}})));
     await cache.put(url, new Response(JSON.stringify(key), {headers: {'Cache-Control': `max-age=${24 * 60 * 60}`}}));
-    return [key, /* cached */ true];
+    return [key, /* cached */ false];
 }
 
 export async function verifyIdToken(idToken, clientId) {
@@ -61,7 +61,7 @@ export async function verifyIdToken(idToken, clientId) {
     const data = textToBuffer(encodedHeader + '.' + encodedPayload);
 
     const [jwk, cached] = await getVerifyJWK(header.kid);
-    payload.publicKeyWasCached = cached;
+    payload.public_key_was_cached = cached;
     const key = await crypto.subtle.importKey('jwk', jwk, algorithm, false, ['verify']);
     const success = await crypto.subtle.verify(key.algorithm, key, signature, data);
     if (success === true) return payload;
