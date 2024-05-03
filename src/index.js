@@ -39,7 +39,7 @@ async function getVerifyJWK(kid) {
     const res = await cache.match(url);
     if (res) return await res.json();
     const key = await fetchVerifyJWK(kid);
-    context.waitUntil(cache.put(url, new Response(JSON.stringify(key))));
+    context.waitUntil(cache.put(url, new Response(JSON.stringify(key)), {headers: {'Cache-Control': 'max-age: 30'}}));
     return key;
 }
 
