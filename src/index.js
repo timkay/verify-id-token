@@ -34,6 +34,7 @@ async function fetchVerifyJWK(kid) {
 async function getVerifyJWK(kid) {
     const cache = typeof caches !== 'undefined' && caches.default;
     if (!cache) return await fetchVerifyJWK(kid);
+    console.log(`getVerifyJWK(${kid})`);
     const url = `https://verify-id-token/google/${kid}`;
     const res = await cache.match(url);
     if (res) return await res.json();
