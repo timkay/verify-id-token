@@ -34,9 +34,9 @@ async function fetchVerifyJWK(kid) {
 async function getVerifyJWK(kid) {
     const cache = typeof caches !== 'undefined' && caches.default;
     if (!cache) return await fetchVerifyJWK(kid);
-    console.log(`getVerifyJWK(${kid})`);
-    const url = `https://verify-id-token/google/3/${kid}`;
+    const url = `https://verify-id-token/google/4/${kid}`;
     const res = await cache.match(url);
+    if (res) console.log(`cached ${url}`);
     if (res) return await res.json();
     const key = await fetchVerifyJWK(kid);
     context.waitUntil(cache.put(url, new Response(JSON.stringify(key)), {headers: {'Cache-Control': 'max-age: 10'}}));
