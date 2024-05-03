@@ -2,7 +2,7 @@
   "type": "module",
   "name": "@timkay/verify-id-token",
   "description": "This code verifies Firebase Auth id-tokens, so that Firebase Auth can be used with other platforms, such as Cloudflare Workers.",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "main": "src/index.js",
   "scripts": {
     "test": "node test.js"
