@@ -25,24 +25,24 @@ const textToBuffer = item => new TextEncoder().encode(item);
 // const bufferToBits = item => [...item].map(x => x.toString(2).padStart(8, '0')).join('');
 
 async function fetchVerifyJWK(kid) {
-    if (setting.debug) console.log(`fetchVerifyJWK(${kid})`);
     const res = await fetch('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com');
     const data = await res.json();
     return data.keys.find(key => key.kid === kid);
 }
 
+/* Get the public key from the identity provider
+ * Returns: [key, cached?]
+ */
 async function getVerifyJWK(kid) {
     const cache = typeof caches !== 'undefined' && caches.default;
-    if (!cache) return await fetchVerifyJWK(kid); // not Cloudflare Workers
-
+    if (!cache) return [await fetchVerifyJWK(kid), false]; // not Cloudflare Workers
     const url = `https://verify-id-token/google/6/${kid}`;
     const res = await cache.match(url);
-    if (res) if (setting.debug) console.log(`cached ${url}`);
-    if (res) return await res.json();
+    if (res) return [/* key */ await res.json(), /* not cached */ false];
     const key = await fetchVerifyJWK(kid);
     // context.waitUntil(cache.put(url, new Response(JSON.stringify(key), {headers: {'Cache-Control': `max-age=${60 * 60}`}})));
     await cache.put(url, new Response(JSON.stringify(key), {headers: {'Cache-Control': `max-age=${24 * 60 * 60}`}}));
-    return key;
+    return [key, /* cached */ true];
 }
 
 export async function verifyIdToken(idToken, clientId) {
@@ -60,7 +60,8 @@ export async function verifyIdToken(idToken, clientId) {
     const signature = base64ToBuffer(encodedSignature);
     const data = textToBuffer(encodedHeader + '.' + encodedPayload);
 
-    const jwk = await getVerifyJWK(header.kid);
+    const [jwk, cached] = await getVerifyJWK(header.kid);
+    if (cached) payload.publicKeyWasCached = cached;
     const key = await crypto.subtle.importKey('jwk', jwk, algorithm, false, ['verify']);
     const success = await crypto.subtle.verify(key.algorithm, key, signature, data);
     if (success === true) return payload;
