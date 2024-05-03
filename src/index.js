@@ -25,7 +25,7 @@ const textToBuffer = item => new TextEncoder().encode(item);
 // const bufferToBits = item => [...item].map(x => x.toString(2).padStart(8, '0')).join('');
 
 async function fetchVerifyJWK(kid) {
-    console.log(`fetchVerifyJWK(${kid})`);
+    if (setting.debug) console.log(`fetchVerifyJWK(${kid})`);
     const res = await fetch('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com');
     const data = await res.json();
     return data.keys.find(key => key.kid === kid);
@@ -33,10 +33,11 @@ async function fetchVerifyJWK(kid) {
 
 async function getVerifyJWK(kid) {
     const cache = typeof caches !== 'undefined' && caches.default;
-    if (!cache) return await fetchVerifyJWK(kid);
+    if (!cache) return await fetchVerifyJWK(kid); // not Cloudflare Workers
+
     const url = `https://verify-id-token/google/6/${kid}`;
     const res = await cache.match(url);
-    if (res) console.log(`cached ${url}`);
+    if (res) if (setting.debug) console.log(`cached ${url}`);
     if (res) return await res.json();
     const key = await fetchVerifyJWK(kid);
     // context.waitUntil(cache.put(url, new Response(JSON.stringify(key), {headers: {'Cache-Control': `max-age=${60 * 60}`}})));
