@@ -25,13 +25,21 @@ const textToBuffer = item => new TextEncoder().encode(item);
 // const bufferToBits = item => [...item].map(x => x.toString(2).padStart(8, '0')).join('');
 
 async function fetchVerifyJWK(kid) {
+    console.log(`fetchVerifyJWK(${kid})`);
     const res = await fetch('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com');
     const data = await res.json();
     return data.keys.find(key => key.kid === kid);
 }
 
 async function getVerifyJWK(kid) {
-    return await fetchVerifyJWK(kid);
+    const cache = typeof caches !== 'undefined' && caches.default;
+    if (!cache) return await fetchVerifyJWK(kid);
+    const url = `https://verify-id-token/google/${kid}`;
+    const res = await cache.match(url);
+    if (res) return await res.json();
+    const key = await fetchVerifyJWK(kid);
+    await cache.put(url, new Response(key));
+    return key;
 }
 
 export async function verifyIdToken(idToken, clientId) {
