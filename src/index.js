@@ -25,24 +25,25 @@ const textToBuffer = item => new TextEncoder().encode(item);
 // const bufferToBits = item => [...item].map(x => x.toString(2).padStart(8, '0')).join('');
 
 async function fetchVerifyJWK(kid) {
-    const res = await fetch('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com');
+    const options = {};
+
+    // detect running in Cloudflare worker
+    const cf = typeof caches !== 'undefined' && caches.default;
+    if (!cf) options.cf = {cacheTtl: 5};
+
+    const res = await fetch('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com', options);
     const data = await res.json();
-    return data.keys.find(key => key.kid === kid);
+
+    return [data.keys.find(key => key.kid === kid), cf && res.headers.get('cf-cache-status')];
 }
 
 /* Get the public key from the identity provider
+ * If you are going to implement local caching, do it here.
  * Returns: [key, cached?]
  */
 async function getVerifyJWK(kid) {
-    const cache = typeof caches !== 'undefined' && caches.default;
-    if (!cache) return [/* key */ await fetchVerifyJWK(kid), /* cached */ false]; // not Cloudflare Workers
-    const url = `https://verify-id-token/google/0/${kid}`;
-    const res = await cache.match(url);
-    if (res) return [/* key */ await res.json(), /* cached */ true];
-    const key = await fetchVerifyJWK(kid);
-    // context.waitUntil(cache.put(url, new Response(JSON.stringify(key), {headers: {'Cache-Control': `max-age=${60 * 60}`}})));
-    await cache.put(url, new Response(JSON.stringify(key), {headers: {'Cache-Control': `max-age=${24 * 60 * 60}`}}));
-    return [key, /* cached */ false];
+    const [key, cached] = await fetchVerifyJWK(kid);
+    return [key, cached];
 }
 
 export async function verifyIdToken(idToken, clientId) {
