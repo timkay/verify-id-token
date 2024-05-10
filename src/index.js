@@ -29,7 +29,7 @@ async function fetchVerifyJWK(kid) {
 
     // detect running in Cloudflare worker
     const cf = typeof caches !== 'undefined' && caches.default;
-    if (!cf) options.cf = {cacheTtl: 5};
+    if (cf) options.cf = {cacheTtl: 5};
 
     const res = await fetch('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com', options);
     const data = await res.json();
