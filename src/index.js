@@ -62,7 +62,7 @@ export async function verifyIdToken(idToken, clientId) {
     const data = textToBuffer(encodedHeader + '.' + encodedPayload);
 
     const [jwk, cached] = await getVerifyJWK(header.kid);
-    payload.public_key_was_cached = cached;
+    payload['cache-status'] = cached;
     const key = await crypto.subtle.importKey('jwk', jwk, algorithm, false, ['verify']);
     const success = await crypto.subtle.verify(key.algorithm, key, signature, data);
     if (success === true) return payload;
