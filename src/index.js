@@ -31,7 +31,7 @@ async function fetchVerifyJWK(kid) {
     const cf = typeof caches !== 'undefined' && caches.default;
     if (!cf) options.cf = {cacheTtl: 5};
 
-    const res = await fetch('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com', {cf: {cacheTtl: 5}});
+    const res = await fetch('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com', options);
     const data = await res.json();
 
     return [data.keys.find(key => key.kid === kid), cf && res.headers.get('cf-cache-status')];
