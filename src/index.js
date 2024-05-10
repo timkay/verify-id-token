@@ -29,21 +29,21 @@ async function fetchVerifyJWK(kid) {
 
     // detect running in Cloudflare worker
     const cf = typeof caches !== 'undefined' && caches.default;
-    if (cf) options.cf = {cacheTtl: 60 * 60}; // cache for only one hour to facility testing
+    if (cf) options.cf = {cacheEverything: true}; // cache for the ttl specified by origin
 
     const res = await fetch('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com', options);
     const data = await res.json();
 
-    return [data.keys.find(key => key.kid === kid), cf && res.headers.get('cf-cache-status')];
+    return [data.keys.find(key => key.kid === kid), {status: cf && res.headers.get('cf-cache-status'), control: res.headers.get('cache-control'), expires: res.headers.get('expires')}];
 }
 
 /* Get the public key from the identity provider
  * If you are going to implement local caching, do it here.
- * Returns: [key, cached?]
+ * Returns: [key, cache]
  */
 async function getVerifyJWK(kid) {
-    const [key, cached] = await fetchVerifyJWK(kid);
-    return [key, cached];
+    const [key, cache] = await fetchVerifyJWK(kid);
+    return [key, cache];
 }
 
 export async function verifyIdToken(idToken, clientId) {
@@ -61,8 +61,8 @@ export async function verifyIdToken(idToken, clientId) {
     const signature = base64ToBuffer(encodedSignature);
     const data = textToBuffer(encodedHeader + '.' + encodedPayload);
 
-    const [jwk, cached] = await getVerifyJWK(header.kid);
-    payload.cache_status = cached;
+    const [jwk, cache] = await getVerifyJWK(header.kid);
+    payload.certificate_cache = cache;
     const key = await crypto.subtle.importKey('jwk', jwk, algorithm, false, ['verify']);
     const success = await crypto.subtle.verify(key.algorithm, key, signature, data);
     if (success === true) return payload;
