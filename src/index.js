@@ -29,7 +29,7 @@ async function fetchVerifyJWK(kid) {
 
     // detect running in Cloudflare worker
     const cf = typeof caches !== 'undefined' && caches.default;
-    if (cf) options.cf = {cacheTtl: 5};
+    if (cf) options.cf = {cacheTtl: 60 * 60}; // cache for only one hour to facility testing
 
     const res = await fetch('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com', options);
     const data = await res.json();
@@ -62,7 +62,7 @@ export async function verifyIdToken(idToken, clientId) {
     const data = textToBuffer(encodedHeader + '.' + encodedPayload);
 
     const [jwk, cached] = await getVerifyJWK(header.kid);
-    payload['cache-status'] = cached;
+    payload.cache_status = cached;
     const key = await crypto.subtle.importKey('jwk', jwk, algorithm, false, ['verify']);
     const success = await crypto.subtle.verify(key.algorithm, key, signature, data);
     if (success === true) return payload;
